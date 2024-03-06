@@ -1,0 +1,13 @@
+{
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "prerun",
+            "command": "./prerun.sh",
+            "options": {
+            },
+            "problemMatcher": []
+        }
+    ],
+    "version": "2.0.0"
+}

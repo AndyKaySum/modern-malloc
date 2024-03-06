@@ -1,0 +1,2 @@
+export TOPDIR=$(pwd)
+make
