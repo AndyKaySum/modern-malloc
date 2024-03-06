@@ -8,7 +8,7 @@
             "name": "Threadtest 1 Thread Debug",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/benchmarks/threadtest/threadtest-kheap-dbg",
+            "program": "${workspaceFolder}/benchmarks/threadtest/threadtest-a2alloc-dbg",
             // 	threadtest for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
             "args": ["1", "50", "30000", "0", "1"],
             "stopAtEntry": false,

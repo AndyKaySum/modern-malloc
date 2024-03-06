@@ -79,7 +79,7 @@ struct segment
 	size_t num_used_pages; // sum of used + free should = total_num_pages
 	size_t num_free_pages;
 	page *free_pages; // only relevant for small pages
-	page* pages[NUM_PAGES_SMALL_SEGMENT];	  // pointer to array of page metadata (can be size 1)
+	page pages[NUM_PAGES_SMALL_SEGMENT];	  // pointer to array of page metadata (can be size 1)
 } __attribute__((aligned(SEGMENT_SIZE))) /*NOTE: this only works on gcc*/ typedef segment;
 
 #define NUM_DIRECT_PAGES 127
@@ -99,6 +99,10 @@ struct thread_heap
 	// TODO fix padding
 	uint8_t padding[CACHESIZE - 40]; // ensure that false sharing does not occur for this
 } typedef thread_heap;
+
+#define NUM_CPUS 40
+// pointers to thread-local heaps
+thread_heap tlb[NUM_CPUS];
 
 void init_thread_heap(size_t id)
 {
@@ -198,8 +202,10 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 	new_seg->total_num_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : 1;
 
 	// pointer to start of pages array
-	new_seg->pages = new_seg + sizeof(segment); // TODO add padding
-	new_seg->free_pages = new_seg->pages;		// TODO: initialize all pages to be a ptr to next page
+	// new_seg->pages = new_seg + sizeof(segment); // TODO add padding
+	new_seg->free_pages = &new_seg->pages[0];		// TODO: initialize all pages to be a ptr to next page
+
+	//TODO: set each page to point to next one in array (pages)
 
 	// TODO: DETERMINE PAGE AREA POINTER BASED ON SIZEOF METADATA
 	// for all pages, multiply page metadata by # num pages and add size of segment metadata
@@ -266,7 +272,8 @@ page *malloc_page(thread_heap *heap, size_t size, size_t page_num)
 	}
 	
 	// todo make sure this is valid.
-	size_t num_blocks = (page->reserved - page->page_area)/page->block_size;
+	uint64_t available_space = ((uint64_t)page->reserved - (uint64_t)page->page_area);
+	size_t num_blocks = available_space/page->block_size;
 	// These segments are 4MiB
 	// (or larger for huge objects that are over 512KiB), and start with the segment- and
 	// page meta data, followed by the actual pages where the first page is shortened
@@ -291,6 +298,11 @@ void *malloc_generic(thread_heap *heap, size_t size)
 	// }
 
 	// page/segment alloc path.
+	page * page = malloc_page(heap, size, 1);
+	struct block_t * block = page->free;
+	page->free =  block->next;
+
+	return block;
 }
 
 void *malloc_small(thread_heap *heap, size_t size)
@@ -333,12 +345,10 @@ void *mm_malloc(size_t sz)
 void mm_free(void *ptr)
 {
 	(void)ptr; /* Avoid warning about unused variable */
-	num_free_pages(ptr);
+	free(ptr);
 }
 
-#define NUM_CPUS 40
-// pointers to thread-local heaps
-thread_heap tlb[NUM_CPUS];
+
 
 int mm_init(void)
 {
