@@ -93,7 +93,7 @@ struct thread_heap
 	page *pages[NUM_PAGES];		//
 	size_t cpu_id;				// CPU number
 	page *small_page_refs;		// freelist of unallocated small page refs
-	segment *free_segment_refs; // linked list of freed segments that can be written to
+	struct segment *free_segment_refs; // linked list of freed segments that can be written to
 	// check before allocating new segment with mem_sbrk
 	// TODO fix padding
 	uint8_t padding[CACHESIZE - 40]; // ensure that false sharing does not occur for this
@@ -149,6 +149,21 @@ enum page_kind_enum get_page_type(size_t size)
 		return LARGE;
 	}
 	return HUGE;
+}
+
+struct block_t *create_free_blocks(struct page *page, size_t num_blocks)
+{
+	struct block_t *first_block = page->page_area;
+	struct block_t *curr_block = first_block;
+	for (int i = 0; i < num_blocks; i++)
+	{
+		// next block should be block_size + next pointer away from current block
+		struct block_t *tmp = curr_block + page->block_size;
+		tmp->next = NULL;
+		curr_block->next = tmp;
+		curr_block = tmp;
+	}
+	return first_block;
 }
 
 #define SEGMENT_METADATA_SIZE 128
@@ -235,14 +250,8 @@ page *malloc_page(thread_heap *heap, size_t size)
 	page->reserved;
 
 	// set up block_t freelist
-	//  page-> fre is start of freelist
-	struct block_t *curr_block = page->page_area;
-	for (int i = 0; i < num_blocks; i++)
-	{
-		// next block should be block_size + next pointer away from current block
-		struct block_t *tmp = curr_block + page->block_size;
-	}
-	page->free = NULL;
+	// page-> free is start of freelist
+	page->free = create_free_blocks(page, num_blocks);
 }
 
 void *malloc_generic(thread_heap *heap, size_t size)
