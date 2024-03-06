@@ -1,2 +1,3 @@
 export TOPDIR=$(pwd)
-make
+make debug
+chmod +x ./benchmarks/*
