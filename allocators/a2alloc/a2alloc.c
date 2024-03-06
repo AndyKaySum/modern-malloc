@@ -26,6 +26,7 @@ typedef ptrdiff_t vaddr_t;
 #define MB 1048576										// 2^20 bytes
 #define KB 1024											// 2^10 bytes
 #define SEGMENT_SIZE 4 * MB
+#define NUM_PAGES_SMALL_SEGMENT 64
 
 struct block_t
 {
@@ -78,7 +79,7 @@ struct segment
 	size_t num_used_pages; // sum of used + free should = total_num_pages
 	size_t num_free_pages;
 	page *free_pages; // only relevant for small pages
-	page *pages;	  // pointer to first page
+	page* pages[NUM_PAGES_SMALL_SEGMENT];	  // pointer to array of page metadata (can be size 1)
 } __attribute__((aligned(SEGMENT_SIZE))) /*NOTE: this only works on gcc*/ typedef segment;
 
 #define NUM_DIRECT_PAGES 127
@@ -158,6 +159,7 @@ struct block_t *create_free_blocks(struct page *page, size_t num_blocks)
 	for (int i = 0; i < num_blocks; i++)
 	{
 		// next block should be block_size + next pointer away from current block
+		// TODO assert that pointer to every block + blocksize <= reserved
 		struct block_t *tmp = curr_block + page->block_size;
 		tmp->next = NULL;
 		curr_block->next = tmp;
@@ -192,10 +194,10 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 
 	new_seg->page_shift = page_kind == SMALL ? 16 : 22;
 	new_seg->num_used_pages = 0;
-	new_seg->num_free_pages = page_kind == SMALL ? 64 : 1; // 64 pages in small, 1 in others
-	new_seg->total_num_pages = page_kind == SMALL ? 64 : 1;
+	new_seg->num_free_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : 1; // 64 pages in small, 1 in others
+	new_seg->total_num_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : 1;
 
-	// pointer to start of pages.
+	// pointer to start of pages array
 	new_seg->pages = new_seg + sizeof(segment); // TODO add padding
 	new_seg->free_pages = new_seg->pages;		// TODO: initialize all pages to be a ptr to next page
 
@@ -209,7 +211,7 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 }
 
 // create page
-page *malloc_page(thread_heap *heap, size_t size)
+page *malloc_page(thread_heap *heap, size_t size, size_t page_num)
 {
 
 	// check to see if there is a num_free_pages page in segment we want to go to.
@@ -227,7 +229,6 @@ page *malloc_page(thread_heap *heap, size_t size)
 	page->block_size = size_class(size) + sizeof(struct block_t);
 
 	page->num_used = 0;
-	page->page_area = page + sizeof(page);
 
 	page->local_free = NULL;
 	page->thread_free = NULL;
@@ -242,12 +243,38 @@ page *malloc_page(thread_heap *heap, size_t size)
 	// capacity <= (((4MB - sizeof(segment))/num_pages) - sizeof(page))/block_size
 	// segment->page_kind
 	
-	size_t space_per_page = ((4 * MB - sizeof(struct segment)) / segment->total_num_pages);
-	size_t num_blocks = (space_per_page - sizeof(struct page)) / page->block_size; // end of last usable block.
+	// 
+	// size_t usable_page_area = num_blocks * page->block_size;
+
+	// size_t num_blocks;  
+	
+	// page area for this specific page
+	// todo fix this pointer arithmetic
+	size_t space_per_page = segment->page_kind == SMALL ? 64 * KB : 512 * KB; 
+
+
+	size_t usable_page_area;
+	if (page_num == 1)
+	{
+		page->page_area = segment + sizeof(struct segment);
+		page->reserved = segment + space_per_page;
+
+	} else{
+		// case of 64 pages
+		page->page_area = segment + space_per_page * (page_num - 1);
+		page->reserved = page->page_area + space_per_page;
+	}
+	
+	// todo make sure this is valid.
+	size_t num_blocks = (page->reserved - page->page_area)/page->block_size;
+	// These segments are 4MiB
+	// (or larger for huge objects that are over 512KiB), and start with the segment- and
+	// page meta data, followed by the actual pages where the first page is shortened
+	// by the size of the meta data plus a guard page
+
 	// TODO check that this is doing pointer arithmetic properly
-	size_t usable_page_area = num_blocks * page->block_size;
-	page->capacity = page->page_area + usable_page_area;
-	page->reserved;
+	// should account for rounding.
+	page->capacity = page->page_area + (num_blocks * page->block_size);
 
 	// set up block_t freelist
 	// page-> free is start of freelist
