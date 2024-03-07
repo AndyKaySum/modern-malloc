@@ -432,7 +432,7 @@ void *malloc_generic(thread_heap *heap, size_t size)
 	page->next = old_head;
 	heap->pages[pages_idx] = page;
 	if (pages_direct_idx >= 0) {//update pages_direct entry if block size is appropriate
-		heap->pages_direct[pages_direct_idx] = page;
+		heap->pages_direct[pages_direct_idx + 1] = page;
 	}
 
 	return block;
