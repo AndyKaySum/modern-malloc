@@ -96,22 +96,23 @@ struct segment
 	size_t num_free_pages;
 	page *free_pages; // only relevant for small pages
 	page pages[NUM_PAGES_SMALL_SEGMENT];	  // pointer to array of page metadata (can be size 1)
+	struct segment *next; // pointer to next segment for small_segment_refs in thread_heap
 // } __attribute__((aligned(SEGMENT_SIZE))) /*NOTE: this only works on gcc*/ typedef segment;
 } /*NOTE: this only works on gcc*/ typedef segment;
 
-#define NUM_DIRECT_PAGES 127
+#define NUM_DIRECT_PAGES 128
 #define NUM_PAGES 16
 struct thread_heap
 {
 	uint8_t init; // 8
-	// 8, 16, 24... -> 1024, step 8
-	struct page *pages_direct[NUM_DIRECT_PAGES]; // 8
+	// 8, 16, 24... -> 1024, step 8, start at index 1 to conform to bit shifting logic
+	struct page *pages_direct[NUM_DIRECT_PAGES]; // 8 
 
 	// 2^3 -> 2^ 19
 	struct page *pages[NUM_PAGES];		//
 	size_t cpu_id;				// CPU number
 	page *small_page_refs;		// freelist of unallocated small page refs
-	struct segment *free_segment_refs; // linked list of freed segments that can be written to
+	struct segment *small_segment_refs; // linked list of freed segments that can be written to
 	// check before allocating new segment with mem_sbrk
 	// TODO fix padding
 	uint8_t padding[CACHESIZE - 40]; // ensure that false sharing does not occur for this
@@ -251,37 +252,28 @@ page *create_free_pages(struct segment *segment)
 
 #define SEGMENT_METADATA_SIZE 128
 #define PAGE_METADATA_SIZE 128
+// TODO: Add reclaiming of unused segment
 segment *malloc_segment(thread_heap *heap, size_t size)
 {
 	// call mem_sbrk here
 	segment *new_seg = mem_sbrk(SEGMENT_SIZE); //TODO: make sure the pointer this gives us is MB aligned, a lot breaks if not
 	assert((uintptr_t)new_seg % (4 * MB) == 0);//TODO: the assertion
-
-	// c cpu_id;
-	// uint32_t page_shift; // for small pages this is 16 (= 64KiB), while for large and huge pages it is 22 (= 4MiB) such that the index is always zero in those cases (as there is just one page)
-	// enum page_kind_enum page_kind;
-	// size_t num_used_pages;
-	// size_t num_free_pages;
-	// page *pages;
+	enum page_kind_enum page_kind = get_page_kind(size);
 
 	new_seg->cpu_id = heap->cpu_id;
-	enum page_kind_enum page_kind = get_page_kind(size);
-	new_seg->page_kind = page_kind;
-
 	// (From paper)...
 	// we can calculate the page index by taking the difference and shifting by the
 	// segment page_shift: for small pages this is 16 (= 64KiB), while for large and
 	// huge pages it is 22 (= 4MiB) such that the index is always zero in those cases
 	// (as there is just one page)
-
 	new_seg->page_shift = page_kind == SMALL ? 16 : 22;
+	new_seg->page_kind = page_kind;
+	new_seg->total_num_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : 1;
 	new_seg->num_used_pages = 0;
 	new_seg->num_free_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : 1; // 64 pages in small, 1 in others
-	new_seg->total_num_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : 1;
 
 	// pointer to start of pages array
-	// new_seg->pages = new_seg + sizeof(segment);
-	new_seg->free_pages = create_free_pages(new_seg);	
+	new_seg->free_pages = create_free_pages(new_seg);
 
 	// TODO: DETERMINE PAGE AREA POINTER BASED ON SIZEOF METADATA
 	// for all pages, multiply page metadata by # num pages and add size of segment metadata
@@ -303,6 +295,10 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 		}
 	}
 
+	// Add segment to small_segment_refs in heap
+	new_seg->next = heap->small_segment_refs;
+	heap->small_segment_refs = new_seg;
+
 	return new_seg;
 }
 
@@ -312,10 +308,27 @@ page *malloc_page(thread_heap *heap, size_t size)
 
 	// check to see if there is a num_free_pages page in segment we want to go to.
 	// there is space for num_free_pages page....
+	segment *segment = NULL;
 
-	// if there is no num_free_pages page...
-	// case where new segment is needed
-	segment *segment = malloc_segment(heap, size);
+	// check for segment with uninitialized page
+	if (get_page_kind(size) == SMALL)
+	{
+		for(struct segment *free_seg = heap->small_segment_refs; free_seg != NULL; free_seg = free_seg->next)
+		{
+			if (free_seg->free_pages != NULL)
+			{
+				segment = free_seg;
+				break;
+			}
+		}
+	}
+
+	if (segment == NULL)
+	{ 
+		// if there is no num_free_pages page...
+		// case where new segment is needed
+		segment = malloc_segment(heap, size);
+	}
 
 	// assume we have valid page pointer to create
 	page *first_page = segment->free_pages;
@@ -328,9 +341,7 @@ page *malloc_page(thread_heap *heap, size_t size)
 
 	// // DEBUG INFO
 	page->block_size = nearest_block_size(size); //TODO: make an array of ALL block pages_sizes possible
-
 	page->num_used = 0;
-
 	page->local_free = NULL;
 	page->thread_free = NULL;
 	page->num_thread_freed = 0; // Number of blocks freed by other threads
@@ -388,6 +399,7 @@ void *mm_malloc(size_t sz);
 // TODO: rotate linked list to optimize walking through the list
 void *malloc_generic(thread_heap *heap, size_t size)
 {
+	// breakpoint here to make sure the block size and page indices are correct
 	size_t block_size = nearest_block_size(size);
 	int64_t pages_direct_idx = pages_direct_index(size);
 	int pages_idx = size_class(size);
@@ -397,13 +409,11 @@ void *malloc_generic(thread_heap *heap, size_t size)
 		if (page->num_used - page->num_thread_freed == 0) { // objects currently used - objects freed by other threads = 0
 			page_free(page); // add page to segment's free_pages
 		} else if (page->free != NULL && page->block_size == block_size) {
-			// TODO: update pages direct
-			// next free direct page
 
 			if (pages_direct_idx >= 0) {//update pages_direct entry if block size is appropriate
 				heap->pages_direct[pages_direct_idx] = page;
 			}
-			//TODO: When a page is found with free space, the page list is also rotated at that point so that a next search starts from that point.
+			//TODO: When a page is found with free space, the page list is also rotated at that point so that a next search starts from that point. <- optimization
 
 			
 			return mm_malloc(size);
@@ -414,6 +424,8 @@ void *malloc_generic(thread_heap *heap, size_t size)
 	struct page * page = malloc_page(heap, size);//TODO: change page num field
 	struct block_t * block = page->free;
 	page->free =  block->next;
+	block->next = NULL;
+	page->num_used++;
 
 	//update pointers
 	struct page *old_head = heap->pages[pages_idx];
@@ -442,6 +454,7 @@ void *malloc_large(thread_heap *heap, size_t size)
 
 void *malloc_small(thread_heap *heap, size_t size)
 {
+	// breakpoint here to check the index of direct page
 	struct page* page = heap->pages_direct[(size + 7)>>3];
 	if (page == NULL || page->free == NULL)
 	{
@@ -471,10 +484,11 @@ void *mm_malloc(size_t sz)
 		memset(tlb[cpu_id].pages_direct, 0, sizeof(page *) * NUM_DIRECT_PAGES);
 		memset(tlb[cpu_id].pages, 0, sizeof(page *) * NUM_PAGES);
 		tlb[cpu_id].cpu_id = cpu_id;
-		tlb[cpu_id].free_segment_refs = NULL;
+		tlb[cpu_id].small_segment_refs = NULL;
 		tlb[cpu_id].small_page_refs = NULL;
 	}
 
+	// breakpoint here to check tlb metadata
 	if (sz <= 8 * KB)
 	{
 		return malloc_small(&tlb[cpu_id], sz);
