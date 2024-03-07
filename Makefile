@@ -1,5 +1,5 @@
 BENCHDIR := benchmarks
-DIRS := cache-scratch cache-thrash larson threadtest linux-scalability phong
+DIRS := cache-scratch cache-thrash larson threadtest linux-scalability phong simple
 
 all:
 	cd util; make

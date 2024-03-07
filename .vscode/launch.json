@@ -5,6 +5,32 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Simple Debug",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/benchmarks/simple/simple-a2alloc-dbg",
+            // 	simpletest for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
+            "args": ["1", "1", "8190", "0", "1"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prerun"
+        },
+        {
             "name": "Threadtest 1 Thread Debug",
             "type": "cppdbg",
             "request": "launch",
