@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
 #include "memlib.h"
@@ -14,14 +15,23 @@
 #endif /* __X86_64__ */
 #endif /* __GNUC__ */
 
-#define NSIZES 10
-static const size_t sizes[NSIZES] = {8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096};
 
 #define SMALLEST_SUBPAGE_SIZE 8
 #define LARGEST_SUBPAGE_SIZE 4096
 
 typedef ptrdiff_t vaddr_t;
 ////////////////////////////////////////
+
+//DESIGN DEVIATIONS/INTERPRETATIONS/ASSUMPTIONS
+//1: pages direct goes from 8 to 512
+//2: multiple of 8 block sizes are a subset of the nearest power of 2 block size in pages (eg, 24 is in 32's list in pages)
+//3: first page area is smaller than the rest to fit metadata from pages and the segment
+
+#define NSIZES 9
+static const size_t pages_sizes[NSIZES] = {8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
+
+#define NUM_TOTAL_SIZES 74
+static const size_t all_sizes[NUM_TOTAL_SIZES] = {8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 328, 336, 344, 352, 360, 368, 376, 384, 392, 400, 408, 416, 424, 432, 440, 448, 456, 464, 472, 480, 488, 496, 504, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288 };
 
 #define CACHESIZE 128 /* Should cover most machines. */ // NOTE: copied from Ex2
 #define MB 1048576										// 2^20 bytes
@@ -40,6 +50,12 @@ struct big_freelist
 {
 	int npages;
 	struct big_freelist *next;
+};
+
+struct page_reference
+{
+	struct page_reference *next;
+	struct page *page;
 };
 
 struct page
@@ -94,10 +110,10 @@ struct thread_heap
 {
 	uint8_t init; // 8
 	// 8, 16, 24... -> 1024, step 8
-	page *pages_direct[NUM_DIRECT_PAGES]; // 8
+	struct page *pages_direct[NUM_DIRECT_PAGES]; // 8
 
 	// 2^3 -> 2^ 19
-	page *pages[NUM_PAGES];		//
+	struct page_reference *pages[NUM_PAGES];		//
 	size_t cpu_id;				// CPU number
 	page *small_page_refs;		// freelist of unallocated small page refs
 	struct segment *free_segment_refs; // linked list of freed segments that can be written to
@@ -118,27 +134,68 @@ thread_heap *get_heap(size_t id)
 {
 }
 
-void deferred_free() {}
-
-// TODO make this deterministic, getting size class should just be 2 calculations
-size_t static inline size_class(size_t sz)
-{
+int64_t static inline best_fit_index(size_t size, size_t sizes_array[], size_t len) {
+	//ceil div to get number of blocks needed, then multiply by block size
+	//TODO: change this to use a static array of predefined pages_sizes
 	unsigned i;
-	for (i = 0; i < NSIZES; i++)
+	for (i = 0; i < len; i++)
 	{
-		if (sz <= sizes[i])
+		if (size <= sizes_array[i])
 		{
 			return i;
 		}
 	}
-
-	printf("Subpage allocator cannot handle allocation of size %lu\n",
-		   (unsigned long)sz);
-	exit(1);
-
-	// keep compiler happy
-	return 0;
+	return -1;
 }
+
+//gets the appropriate index for the block size that fits <size> in our all_sizes array
+//NOTE: all items up until and including 1024, have indexes that align with pages_direct's indexes
+//		so, this can be used to get an index for that
+// size_t static inline nearest_block_size_index(size_t size) {
+// 	//ceil div to get number of blocks needed, then multiply by block size
+// 	//TODO: change this to use a static array of predefined pages_sizes
+// 	unsigned i;
+// 	for (i = 0; i < NUM_TOTAL_SIZES; i++)
+// 	{
+// 		if (size <= all_sizes[i])
+// 		{
+// 			return i;
+// 		}
+// 	}
+// }
+#define nearest_block_size_index(size) best_fit_index(size, all_sizes, NUM_TOTAL_SIZES)
+#define pages_direct_index(size) best_fit_index(size, all_sizes, NUM_DIRECT_PAGES)
+
+//NOTE: in pages (the linked list) the list for 32 block size has to be able to hold 24 block size pages, otherwise we would not be able
+//		to have 24 block sized pages in pages direct (more than 1 at least)
+size_t static inline nearest_block_size(size_t size) {
+	//ceil div to get number of blocks needed, then multiply by block size
+	//TODO: change this to use a static array of predefined pages_sizes
+	return all_sizes[nearest_block_size_index(size)];
+}
+
+
+// TODO make this deterministic, getting size class should just be 2 calculations
+///gets the appropriate index for pages
+// size_t static inline size_class(size_t sz)
+// {
+// 	unsigned i;
+// 	for (i = 0; i < NSIZES; i++)
+// 	{
+// 		if (sz <= pages_sizes[i])
+// 		{
+// 			return i;
+// 		}
+// 	}
+#define size_class(size) best_fit_index(size, pages_sizes, NSIZES)
+
+// 	printf("Subpage allocator cannot handle allocation of size %lu\n",
+// 		   (unsigned long)sz);
+// 	exit(1);
+
+// 	// keep compiler happy
+// 	return 0;
+// }
 
 void page_collect(page *page)
 {
@@ -242,7 +299,7 @@ page *malloc_page(thread_heap *heap, size_t size, size_t page_num)
 	// segment->free_pages = segment->free_pages->next;//TODO: change the page_kind to be a linked list, so that it has a next ptr
 
 	// // DEBUG INFO
-	page->block_size = sizes[size_class(size)];
+	page->block_size = nearest_block_size(size); //TODO: make an array of ALL block pages_sizes possible
 
 	page->num_used = 0;
 
@@ -322,14 +379,32 @@ page *malloc_page(thread_heap *heap, size_t size, size_t page_num)
 	
 }
 
+// TODO: rotate linked list to optimize walking through the list
 void *malloc_generic(thread_heap *heap, size_t size)
 {
-	deferred_free();
+	size_t block_size = nearest_block_size(size);
+	int64_t pages_direct_idx = pages_direct_index(size);
+	
+	for (struct page_reference *pg = heap->pages[size_class(size)]; pg != NULL; pg = pg->next) {
+		page *page = pg->page;
+		page_collect(page);
+		if (page->num_used - page->num_thread_freed == 0) { // objects currently used - objects freed by other threads = 0
+			page_free(page); // add page to segment's free_pages
+		} else if (page->free != NULL && page->block_size == block_size) {
+			// TODO: update pages direct
+			// next free direct page
 
-	//
-	// for (page *pg = heap->pages[]) {
+			if (pages_direct_idx >= 0) {//update pages_direct entry if block size is appropriate
+				heap->pages_direct[pages_direct_idx] = page;
+			}
+			//TODO: When a page is found with free space, the page list is also rotated at that point so that a next search starts from that point.
 
-	// }
+			
+			return mm_malloc(size);
+		}
+
+
+	}
 
 	// page/segment alloc path.
 	page * page = malloc_page(heap, size, 1);
@@ -339,9 +414,32 @@ void *malloc_generic(thread_heap *heap, size_t size)
 	return block;
 }
 
+void *malloc_large(thread_heap *heap, size_t size)
+{
+	size_t block_size = nearest_block_size(size);
+	for (struct page_reference *pg = heap->pages[size_class(size)]; pg != NULL; pg = pg->next) {
+		page *page = pg->page;
+		if (page->free != NULL && page->block_size == block_size) {
+			struct block_t* block = page->free;
+			page->free = block->next;
+			page->num_used++;
+			return block;
+		}
+	}
+	return malloc_generic(heap, size);
+}
+
 void *malloc_small(thread_heap *heap, size_t size)
 {
-	return malloc_generic(heap, size);
+	struct page* page = heap->pages_direct[(size + 7)>>3];
+	struct block_t* block = page->free;
+	if (block == NULL)
+	{
+		return malloc_generic(heap, size);
+	}
+	page->free = block->next;
+	page->num_used++;
+	return block;
 }
 
 size_t get_cpuid()
@@ -369,6 +467,9 @@ void *mm_malloc(size_t sz)
 	if (sz <= 8 * KB)
 	{
 		return malloc_small(&tlb[cpu_id], sz);
+	} else if (sz <= 512 * KB)
+	{
+		return malloc_large(&tlb[cpu_id], sz);
 	}
 	return malloc_generic(&tlb[cpu_id], sz);
 
@@ -378,7 +479,29 @@ void *mm_malloc(size_t sz)
 void mm_free(void *ptr)
 {
 	(void)ptr; /* Avoid warning about unused variable */
-	free(ptr);
+	// free(ptr);
+	struct segment* segment = (struct segment *)((uintptr_t)ptr & ~(4*MB));
+	if (segment == NULL)
+	{
+		return;
+	}
+
+	size_t page_index = ((uintptr_t)ptr - (uintptr_t)segment) >> segment->page_shift;
+	assert(page_index == 0);//TODO: adjust for small pages or remove if not easy to do that
+	
+	page* page = &segment->pages[page_index];
+	
+	struct block_t* block = (struct block_t*)ptr;
+
+	if (get_cpuid() == segment->cpu_id) { // local free
+		block->next = page->local_free;
+		page->local_free = block;
+		page->num_used--;
+		if (page->num_used - page->num_thread_freed == 0) page_free(page);
+	} else { // non-local free TODO: finish this, make fields that need to be atomic actually atomic
+		// atomic_push( &page->thread_free, block);
+		// atomic_incr( &page->num_thread_freed );
+	}
 }
 
 
