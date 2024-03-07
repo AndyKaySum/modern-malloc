@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "memlib.h"
+#include <assert.h>
 
 // NOTE: copied from kheap
 #define PAGE_SIZE 4096
@@ -13,11 +14,11 @@
 #endif /* __X86_64__ */
 #endif /* __GNUC__ */
 
-#define NSIZES 9
-static const size_t sizes[NSIZES] = {8, 16, 32, 64, 128, 256, 512, 1024, 2048};
+#define NSIZES 10
+static const size_t sizes[NSIZES] = {8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096};
 
 #define SMALLEST_SUBPAGE_SIZE 8
-#define LARGEST_SUBPAGE_SIZE 2048
+#define LARGEST_SUBPAGE_SIZE 4096
 
 typedef ptrdiff_t vaddr_t;
 ////////////////////////////////////////
@@ -25,6 +26,8 @@ typedef ptrdiff_t vaddr_t;
 #define CACHESIZE 128 /* Should cover most machines. */ // NOTE: copied from Ex2
 #define MB 1048576										// 2^20 bytes
 #define KB 1024											// 2^10 bytes
+
+
 #define SEGMENT_SIZE 4 * MB
 #define NUM_PAGES_SMALL_SEGMENT 64
 
@@ -48,9 +51,11 @@ struct page
 
 	size_t num_used;		 // number of blocks used (used for freeing pages)
 	size_t num_thread_freed; // Number of blocks freed by other threads (used for freeing pages)
+	size_t total_num_blocks; // total number of blocks
 
-	void *capacity; // end of last usable block
-	void *reserved; // end of page area (such that entire segment is 4MB-aligned)
+
+	char *capacity; // end of last usable block
+	char *reserved; // end of page area (such that entire segment is 4MB-aligned)
 	// DEBUG INFO
 	size_t size_class; // return of size_class
 	size_t block_size; // size_class + sizeof(block_t)
@@ -80,7 +85,8 @@ struct segment
 	size_t num_free_pages;
 	page *free_pages; // only relevant for small pages
 	page pages[NUM_PAGES_SMALL_SEGMENT];	  // pointer to array of page metadata (can be size 1)
-} __attribute__((aligned(SEGMENT_SIZE))) /*NOTE: this only works on gcc*/ typedef segment;
+// } __attribute__((aligned(SEGMENT_SIZE))) /*NOTE: this only works on gcc*/ typedef segment;
+} /*NOTE: this only works on gcc*/ typedef segment;
 
 #define NUM_DIRECT_PAGES 127
 #define NUM_PAGES 16
@@ -143,7 +149,7 @@ void page_collect(page *page)
 	// TODO
 }
 
-enum page_kind_enum get_page_type(size_t size)
+enum page_kind_enum get_page_kind(size_t size)
 {
 	if (size <= 1024)
 	{
@@ -163,11 +169,15 @@ struct block_t *create_free_blocks(struct page *page, size_t num_blocks)
 	for (int i = 0; i < num_blocks; i++)
 	{
 		// next block should be block_size + next pointer away from current block
-		// TODO assert that pointer to every block + blocksize <= reserved
-		struct block_t *tmp = curr_block + page->block_size;
+		// TODO assert that pointer to every block + blocksize <= capacity
+		struct block_t *tmp = (struct block_t *) ((char *) curr_block + page->block_size);
 		tmp->next = NULL;
 		curr_block->next = tmp;
 		curr_block = tmp;
+
+		// DEBUG
+		assert(page->capacity >= (char *)tmp);
+		
 	}
 	return first_block;
 }
@@ -187,7 +197,7 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 	// page *pages;
 
 	new_seg->cpu_id = heap->cpu_id;
-	enum page_kind_enum page_kind = get_page_type(size);
+	enum page_kind_enum page_kind = get_page_kind(size);
 	new_seg->page_kind = page_kind;
 
 	// (From paper)...
@@ -232,7 +242,7 @@ page *malloc_page(thread_heap *heap, size_t size, size_t page_num)
 	// segment->free_pages = segment->free_pages->next;//TODO: change the page_kind to be a linked list, so that it has a next ptr
 
 	// // DEBUG INFO
-	page->block_size = size_class(size) + sizeof(struct block_t);
+	page->block_size = sizes[size_class(size)];
 
 	page->num_used = 0;
 
@@ -256,36 +266,60 @@ page *malloc_page(thread_heap *heap, size_t size, size_t page_num)
 	
 	// page area for this specific page
 	// todo fix this pointer arithmetic
-	size_t space_per_page = segment->page_kind == SMALL ? 64 * KB : 512 * KB; 
-
+	size_t bytes_per_page = segment->page_kind == SMALL ? 64 * KB : 4 * MB; 
+	size_t words_per_page = bytes_per_page/8; // 8 bytes per word
 
 	size_t usable_page_area;
 	if (page_num == 1)
 	{
-		page->page_area = segment + sizeof(struct segment);
-		page->reserved = segment + space_per_page;
+		page->page_area = (page_area *) segment + sizeof(struct segment);
+		usable_page_area = bytes_per_page - sizeof(struct segment);
+		// page->total_num_blocks = usable_page_area 
+		// segment start - page_area 
+		// page->reserved = segment + words_per_page;
 
 	} else{
 		// case of 64 pages
-		page->page_area = segment + space_per_page * (page_num - 1);
-		page->reserved = page->page_area + space_per_page;
+		page->page_area = (page_area *) segment + words_per_page * (page_num - 1);
+		// page->reserved = page->page_area + words_per_page;
+		usable_page_area = bytes_per_page;
 	}
 	
 	// todo make sure this is valid.
-	uint64_t available_space = ((uint64_t)page->reserved - (uint64_t)page->page_area);
-	size_t num_blocks = available_space/page->block_size;
+	// uint64_t available_space = ((uint64_t)page->reserved - (uint64_t)page->page_area);
+	page->total_num_blocks = usable_page_area/page->block_size;
+
 	// These segments are 4MiB
 	// (or larger for huge objects that are over 512KiB), and start with the segment- and
 	// page meta data, followed by the actual pages where the first page is shortened
 	// by the size of the meta data plus a guard page
-
+ 
 	// TODO check that this is doing pointer arithmetic properly
 	// should account for rounding.
-	page->capacity = page->page_area + (num_blocks * page->block_size);
+	// page->capacity = page->page_area + (num_blocks * page->block_size);
+	size_t number_of_bytes_used =  (page->total_num_blocks * page->block_size);
+	page->capacity = ((char *)page->page_area) + number_of_bytes_used;
 
 	// set up block_t freelist
 	// page-> free is start of freelist
-	page->free = create_free_blocks(page, num_blocks);
+	page->free = create_free_blocks(page, page->total_num_blocks);
+
+	// debug
+
+	assert((char *) page->free == (char *)page->page_area);
+	assert((char *) page->free < page->capacity);
+	// debug, turn off via compile flag or something later
+	// page->capacity = 
+	if (page_num == 1)
+	{
+		char * segment_end = ((char *) segment) + 4 * MB;
+		page->reserved = segment_end;
+		assert(page->reserved >= page->capacity);
+	}
+	assert(page->capacity - (char *) segment < 4 * MB);
+
+	return page;
+	
 }
 
 void *malloc_generic(thread_heap *heap, size_t size)
@@ -317,7 +351,6 @@ size_t get_cpuid()
 
 void *mm_malloc(size_t sz)
 {
-	(void)sz; /* Avoid warning about unused variable */
 	// return malloc(sz);
 	// get CPU ID via syscall
 	size_t cpu_id = get_cpuid();
