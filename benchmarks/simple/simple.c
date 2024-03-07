@@ -84,6 +84,7 @@ struct Foo * page_override = (struct Foo *)mm_malloc(8*sizeof(struct Foo));
   }
 
   struct Foo *b = (struct Foo *)mm_malloc(16*sizeof(struct Foo));
+  struct Foo *c = (struct Foo *)mm_malloc(2048*sizeof(struct Foo));
 
   return NULL;
 }
