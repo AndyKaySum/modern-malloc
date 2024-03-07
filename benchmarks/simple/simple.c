@@ -48,7 +48,7 @@ extern void * worker (void *arg)
   setCPU(cpu);
 
 
-  a = (struct Foo **)mm_malloc( (nobjects / nthreads) * sizeof(struct Foo *));
+  a = (struct Foo **)mm_malloc((nobjects / nthreads) * sizeof(struct Foo *));
 
 // alloc small object bigger than size*sizeof(struct foo) to ensure "fresh" page area
 
@@ -59,7 +59,7 @@ struct Foo * page_override = (struct Foo *)mm_malloc(8*sizeof(struct Foo));
 
     //printf ("a %d\n", j);
     for (i = 0; i < (nobjects / nthreads); i ++) {
-      a[i] = (struct Foo *)mm_malloc(3*sizeof(struct Foo)); // 8 bytes.
+      a[i] = (struct Foo *)mm_malloc(1*sizeof(struct Foo)); // 8 bytes.
     //   for (d = 0; d < work; d++) {
 	// volatile int f = 1;
 	// f = f + f;

@@ -7,7 +7,11 @@
         "limits": "c",
         "ratio": "c",
         "tuple": "c",
-        "variant": "c"
+        "variant": "c",
+        "string_view": "c",
+        "initializer_list": "c",
+        "utility": "c",
+        "assert.h": "c"
     },
     "cmake.configureOnOpen": false
 }
