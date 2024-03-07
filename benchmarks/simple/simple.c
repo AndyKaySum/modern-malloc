@@ -59,7 +59,7 @@ struct Foo * page_override = (struct Foo *)mm_malloc(8*sizeof(struct Foo));
 
     //printf ("a %d\n", j);
     for (i = 0; i < (nobjects / nthreads); i ++) {
-      a[i] = (struct Foo *)mm_malloc(1*sizeof(struct Foo)); // 8 bytes.
+      a[i] = (struct Foo *)mm_malloc(2048*sizeof(struct Foo)); // 8 bytes.
     //   for (d = 0; d < work; d++) {
 	// volatile int f = 1;
 	// f = f + f;
@@ -84,9 +84,9 @@ struct Foo * page_override = (struct Foo *)mm_malloc(8*sizeof(struct Foo));
   }
 
   struct Foo *b = (struct Foo *)mm_malloc(16*sizeof(struct Foo));
-  struct Foo *c = (struct Foo *)mm_malloc(2048*sizeof(struct Foo));
+  struct Foo *c = (struct Foo *)mm_malloc(16376);
   struct Foo *testv = (struct Foo *)mm_malloc(4*sizeof(struct Foo)); // 8 bytes.
-  struct Foo *z = (struct Foo *)mm_malloc(2048*sizeof(struct Foo));
+  struct Foo *z = (struct Foo *)mm_malloc(16380);
 
 
   return NULL;

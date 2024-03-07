@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/benchmarks/simple/simple-a2alloc-dbg",
             // 	simpletest for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
-            "args": ["1", "1", "100", "0", "1"],
+            "args": ["1", "1", "255", "0", "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

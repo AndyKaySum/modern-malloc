@@ -217,20 +217,22 @@ enum page_kind_enum get_page_kind(size_t size)
 
 struct block_t *create_free_blocks(struct page *page)
 {
+	// debug
 	struct block_t *first_block = (struct block_t *)page->page_area;
+	size_t allocated_blocks = 1;
 	size_t num_blocks = page->total_num_blocks;
 	struct block_t *curr_block = first_block;
-	for (int i = 0; i < num_blocks; i++)
+	for (allocated_blocks; allocated_blocks < num_blocks; allocated_blocks++)
 	{
 		// next block should be block_size + next pointer away from current block
 		// TODO assert that pointer to every block + blocksize <= capacity
-		struct block_t *tmp = (struct block_t *)((address)curr_block + page->block_size);
-		tmp->next = NULL;
-		curr_block->next = tmp;
-		curr_block = tmp;
+		struct block_t *next_block = (struct block_t *)((address)curr_block + page->block_size);
+		next_block->next = NULL;
+		curr_block->next = next_block;
+		curr_block = next_block;
 
 		// DEBUG
-		assert(page->capacity >= (address)tmp);
+		assert(page->capacity > (address)next_block);
 		
 	}
 	return first_block;
@@ -240,13 +242,16 @@ page *create_free_pages(struct segment *segment)
 {
 	page *first_page = (page *)&segment->pages[0];	
 	page *curr_page = first_page;
-	for (int i = 0; i < segment->total_num_pages; i++)
+	size_t allocated_pages = 1;
+	for (allocated_pages = 0; allocated_pages < segment->total_num_pages; allocated_pages++)
 	{
-		page *tmp = (page *) ((address) curr_page + sizeof(struct page));
-		tmp->next = NULL;
-		curr_page->next = tmp;
-		curr_page = tmp;
+		page *next_page = (page *) ((address) curr_page + sizeof(struct page));
+		next_page->next = NULL;
+		curr_page->next = next_page;
+		curr_page = next_page;
+		assert((address) segment + 4*MB > next_page);
 	}
+
 	return first_page;
 }
 
@@ -449,6 +454,7 @@ void *malloc_large(thread_heap *heap, size_t size)
 			struct block_t* block = page->free;
 			page->free = block->next;
 			page->num_used++;
+			assert(page->num_used <= page->total_num_blocks);
 			return block;
 		}
 	}
@@ -466,6 +472,7 @@ void *malloc_small(thread_heap *heap, size_t size)
 	struct block_t* block = page->free;
 	page->free = block->next;
 	page->num_used++;
+	assert(page->num_used <= page->total_num_blocks);
 	return block;
 }
 
