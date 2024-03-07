@@ -296,8 +296,11 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 	}
 
 	// Add segment to small_segment_refs in heap
-	new_seg->next = heap->small_segment_refs;
-	heap->small_segment_refs = new_seg;
+	if (new_seg->page_kind == SMALL)
+	{
+		new_seg->next = heap->small_segment_refs;
+		heap->small_segment_refs = new_seg;
+	}
 
 	return new_seg;
 }
