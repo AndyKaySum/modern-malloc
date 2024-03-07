@@ -85,6 +85,8 @@ struct Foo * page_override = (struct Foo *)mm_malloc(8*sizeof(struct Foo));
 
   struct Foo *b = (struct Foo *)mm_malloc(16*sizeof(struct Foo));
   struct Foo *c = (struct Foo *)mm_malloc(2048*sizeof(struct Foo));
+  struct Foo *testv = (struct Foo *)mm_malloc(4*sizeof(struct Foo)); // 8 bytes.
+
 
   return NULL;
 }
@@ -120,6 +122,7 @@ int main (int argc, char * argv[])
 	/* Call allocator-specific initialization function */
 	mm_init();
 	
+	// malloc of size 8
 	pthread_t *threads = (pthread_t *)mm_malloc(nthreads*sizeof(pthread_t));
 	int numCPU = getNumProcessors();
 
