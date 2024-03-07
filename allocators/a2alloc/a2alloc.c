@@ -414,7 +414,7 @@ void *malloc_generic(thread_heap *heap, size_t size)
 		} else if (page->free != NULL && page->block_size == block_size) {
 
 			if (pages_direct_idx >= 0) {//update pages_direct entry if block size is appropriate
-				heap->pages_direct[pages_direct_idx] = page;
+				heap->pages_direct[pages_direct_idx + 1] = page;
 			}
 			//TODO: When a page is found with free space, the page list is also rotated at that point so that a next search starts from that point. <- optimization
 
