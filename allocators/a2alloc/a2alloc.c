@@ -401,8 +401,12 @@ page *malloc_page(thread_heap *heap, size_t size)
 	page *head = segment->free_pages;
 	segment->free_pages = head->next;
 	// head->next = NULL;
+	remove_page_node(head);
 	page *page_to_use = head;
-	remove_page_node(page_to_use);
+	assert(segment->free_pages != page_to_use);//should our page should be removed from free list
+	assert(segment->free_pages == NULL || segment->free_pages->prev == NULL);
+	assert(page_to_use->next == NULL);
+	assert(page_to_use->prev == NULL);
 
 	segment->num_free_pages--;
 	segment->num_used_pages++;
@@ -475,19 +479,24 @@ void page_free(struct page *page) {
 	assert((size_t)segment % SEGMENT_SIZE == 0);
 
 	//update heap data
-	struct page **size_class_list = &tlb[get_cpuid()].pages[size_class(page->block_size)];
-	if (*size_class_list = page) *size_class_list = page->next;
+	thread_heap *heap = &tlb[get_cpuid()];
+	struct page **size_class_list = &heap->pages[size_class(page->block_size)];
+	if (*size_class_list == page) *size_class_list = page->next;
 	size_t pages_direct_idx = pages_direct_index(page->block_size);
-	if (pages_direct_idx < NUM_DIRECT_PAGES && tlb[get_cpuid()].pages_direct[pages_direct_idx] == page) {
-		tlb[get_cpuid()].pages_direct[pages_direct_idx] = NULL;
+	if (pages_direct_idx < NUM_DIRECT_PAGES && heap->pages_direct[pages_direct_idx] == page) {
+		heap->pages_direct[pages_direct_idx] = NULL;
 	}
 	remove_page_node(page);//remove from heap->pages
 	
 	//update free list
 	struct page* head = segment->free_pages;
+	assert(head != page);
+	assert(page->next != page);
+	assert(page->prev != page);
 	page->next = head;
-	head->prev = page;
-
+	if (head != NULL) head->prev = page;
+	assert(page->next != page);
+	assert(page->prev != page);
 	segment->free_pages = page;
 	segment->num_free_pages++;
 	segment->num_used_pages--;
@@ -508,7 +517,10 @@ void *malloc_generic(thread_heap *heap, size_t size)
 	int64_t pages_direct_idx = pages_direct_index(size);
 	int pages_idx = size_class(size);
 
+	assert(heap->pages[pages_idx] == NULL || heap->pages[pages_idx]->prev == NULL);
 	for (struct page *page = heap->pages[pages_idx]; page != NULL; page = page->next) {
+		assert(page->next != page);
+		assert(page->prev != page);
 		page_collect(page);
 		if (page->num_used - page->num_thread_freed == 0) { // objects currently used - objects freed by other threads = 0
 			page_free(page); // add page to segment's free_pages
@@ -526,15 +538,22 @@ void *malloc_generic(thread_heap *heap, size_t size)
 
 	// page/segment alloc path.
 	struct page * page = malloc_page(heap, size);//TODO: change page num field
+	assert(page->next == NULL);
+	assert(page->prev == NULL);
 	struct block_t * block = page->free;
 	page->free =  block->next;
 	block->next = NULL;
 	page->num_used++;
 
 	//update pointers
+	assert(page->next != page);
+	assert(page->prev != page);
+
 	struct page *old_head = heap->pages[pages_idx];
 	page->next = old_head;
-	old_head->prev = page;
+	if (old_head != NULL) old_head->prev = page;
+	assert(page->next != page);
+	assert(page->prev != page);
 	heap->pages[pages_idx] = page;
 	if (pages_direct_idx < NUM_DIRECT_PAGES) {//update pages_direct entry if block size is appropriate
 		heap->pages_direct[pages_direct_idx] = page;
@@ -622,9 +641,10 @@ void mm_free(void *ptr)
 	}
 
 	size_t page_index = ((uintptr_t)ptr - (uintptr_t)segment) >> segment->page_shift;
-	assert(page_index == 0);//TODO: adjust for small pages or remove if not easy to do that
+	assert((segment->page_kind != SMALL && page_index == 0) || page_index < NUM_PAGES_SMALL_SEGMENT);//TODO: adjust for small pages or remove if not easy to do that
 	
 	page* page = &segment->pages[page_index];
+	assert(page != segment->free_pages);
 	
 	struct block_t* block = (struct block_t*)ptr;
 
