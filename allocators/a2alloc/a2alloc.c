@@ -4,6 +4,7 @@
 #include <string.h>
 #include "memlib.h"
 #include <assert.h>
+#include <stdbool.h>
 
 // NOTE: copied from kheap
 #define PAGE_SIZE 4096
@@ -27,10 +28,16 @@ typedef ptrdiff_t vaddr_t;
 //2: multiple of 8 block sizes are a subset of the nearest power of 2 block size in pages (eg, 24 is in 32's list in pages)
 //3: first page area is smaller than the rest to fit metadata from pages and the segment
 //4: pages have a next field, that way we dont have to allocate memory for linked lists
+//5: zero indexing instead of indexing from 1 in the paper
+//6: linked lists of pages/segments are not explicitly allocated, the structs themselves contain next pointers if they need linked list functionality
+//7: in_use bool
+//8: doubly linked lists for pages (prev and next ptrs): needed for freeing, so that heap->pages does not get broken
 
-#define NSIZES 17
-static const size_t pages_sizes[NSIZES] = {8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
 
+#define NUM_PAGES 17
+static const size_t pages_sizes[NUM_PAGES] = {8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
+
+#define NUM_DIRECT_PAGES 64
 #define NUM_TOTAL_SIZES 74
 static const size_t all_sizes[NUM_TOTAL_SIZES] = {8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 328, 336, 344, 352, 360, 368, 376, 384, 392, 400, 408, 416, 424, 432, 440, 448, 456, 464, 472, 480, 488, 496, 504, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
 
@@ -75,7 +82,11 @@ struct page
 	// DEBUG INFO
 	size_t size_class; // return of size_class
 	size_t block_size; // size_class + sizeof(block_t)
+
+	bool in_use;//for sanity check/debugging, false if is free, true if being used
+
 	struct page *next; //for free page linked list and for pages (in heap) linked list, DO NOT USE ANYWHERE ELSE (will mess up free/pages)
+	struct page *prev;
 } typedef page;
 
 enum page_kind_enum
@@ -84,6 +95,10 @@ enum page_kind_enum
 	LARGE, // objects under 512KB, 1 large page that spans whole segment
 	HUGE,  // objects over 512KB
 };
+
+///Use segment alignment to get the pointer to ptr's "parent" segment
+#define get_segment(ptr) (struct segment *)((uintptr_t)(ptr) >> 22 << 22)
+
 struct segment
 {
 	size_t cpu_id;				   // owner CPUID
@@ -96,22 +111,24 @@ struct segment
 	size_t num_free_pages;
 	page *free_pages; // only relevant for small pages
 	page pages[NUM_PAGES_SMALL_SEGMENT];	  // pointer to array of page metadata (can be size 1)
+	
+	bool in_use;//for sanity check/debugging
+
 	struct segment *next; // pointer to next segment for small_segment_refs in thread_heap
 // } __attribute__((aligned(SEGMENT_SIZE))) /*NOTE: this only works on gcc*/ typedef segment;
 } /*NOTE: this only works on gcc*/ typedef segment;
 
-#define NUM_DIRECT_PAGES 128
-#define NUM_PAGES 16
+
 struct thread_heap
 {
-	uint8_t init; // 8
+	bool init; // 8
 	// 8, 16, 24... -> 1024, step 8, start at index 1 to conform to bit shifting logic
 	struct page *pages_direct[NUM_DIRECT_PAGES]; // 8 
 
 	// 2^3 -> 2^ 19
 	struct page *pages[NUM_PAGES];		//
 	size_t cpu_id;				// CPU number
-	page *small_page_refs;		// freelist of unallocated small page refs
+	// page *small_page_refs;		// freelist of unallocated small page refs
 	struct segment *small_segment_refs; // linked list of freed segments that can be written to
 	// check before allocating new segment with mem_sbrk
 	// TODO fix padding
@@ -129,6 +146,11 @@ thread_heap tlb[NUM_CPUS];
 // thread_heap *get_heap(size_t id)
 // {
 // }
+
+size_t get_cpuid()
+{
+	return 1;
+}
 
 int64_t static inline best_fit_index(size_t size, const size_t *sizes_array, size_t len) {
 	//ceil div to get number of blocks needed, then multiply by block size
@@ -160,7 +182,10 @@ int64_t static inline best_fit_index(size_t size, const size_t *sizes_array, siz
 // 	}
 // }
 #define nearest_block_size_index(size) best_fit_index(size, all_sizes, NUM_TOTAL_SIZES)
-#define pages_direct_index(size) best_fit_index(size, all_sizes, NUM_DIRECT_PAGES)
+
+///NOTE: when using this, you must check if the index is within NUM_DIRECT_PAGES
+#define pages_direct_index(size) (((size)+7)>>3)-1
+
 
 //NOTE: in pages (the linked list) the list for 32 block size has to be able to hold 24 block size pages, otherwise we would not be able
 //		to have 24 block sized pages in pages direct (more than 1 at least)
@@ -183,7 +208,7 @@ size_t static inline nearest_block_size(size_t size) {
 // 			return i;
 // 		}
 // 	}
-#define size_class(size) best_fit_index(size, pages_sizes, NSIZES)
+#define size_class(size) best_fit_index(size, pages_sizes, NUM_PAGES)
 
 // 	printf("Subpage allocator cannot handle allocation of size %lu\n",
 // 		   (unsigned long)sz);
@@ -204,55 +229,71 @@ void page_collect(page *page)
 
 enum page_kind_enum get_page_kind(size_t size)
 {
-	if (size <= 1024)
-	{
-		return SMALL;
-	}
-	if (size < 512 * KB)
-	{
-		return LARGE;
-	}
+	if (size <= 1024) return SMALL;
+	if (size < 512 * KB) return LARGE;
 	return HUGE;
 }
 
-struct block_t *create_free_blocks(struct page *page)
+void create_free_blocks(struct page *page)
 {
-	// debug
-	struct block_t *first_block = (struct block_t *)page->page_area;
-	size_t allocated_blocks = 1;
-	size_t num_blocks = page->total_num_blocks;
-	struct block_t *curr_block = first_block;
-	for (allocated_blocks; allocated_blocks < num_blocks; allocated_blocks++)
-	{
-		// next block should be block_size + next pointer away from current block
-		// TODO assert that pointer to every block + blocksize <= capacity
-		struct block_t *next_block = (struct block_t *)((address)curr_block + page->block_size);
-		next_block->next = NULL;
-		curr_block->next = next_block;
-		curr_block = next_block;
+	// // debug
+	// struct block_t *first_block = (struct block_t *)page->page_area;
+	// size_t allocated_blocks = 1;
+	// size_t num_blocks = page->total_num_blocks;
+	// struct block_t *curr_block = first_block;
+	// for (allocated_blocks; allocated_blocks < num_blocks; allocated_blocks++)
+	// {
+	// 	// next block should be block_size + next pointer away from current block
+	// 	// TODO assert that pointer to every block + blocksize <= capacity
+	// 	struct block_t *next_block = (struct block_t *)((address)curr_block + page->block_size);
+	// 	next_block->next = NULL;
+	// 	curr_block->next = next_block;
+	// 	curr_block = next_block;
 
-		// DEBUG
-		assert(page->capacity > (address)next_block);
+	// 	// DEBUG
+	// 	assert(page->capacity > (address)next_block);
 		
+	// }
+	// return first_block;
+	size_t page_area_offset = (size_t)page->page_area;
+	for (int i=0; i<page->total_num_blocks-1; i++) {
+		struct block_t *curr = ((struct block_t *)(page_area_offset + page->block_size*i));
+		struct block_t *next = ((struct block_t *)(page_area_offset + page->block_size*(i+1)));
+		curr->next = next;
+		next->next = NULL;
+
+		assert(page->capacity > (address)curr);
+		assert(page->capacity > (address)next);
 	}
-	return first_block;
+	page->free = page->page_area;
 }
 
-page *create_free_pages(struct segment *segment)
+void *create_free_pages(struct segment *segment)
 {
-	page *first_page = (page *)&segment->pages[0];	
-	page *curr_page = first_page;
-	size_t allocated_pages = 1;
-	for (allocated_pages = 0; allocated_pages < segment->total_num_pages; allocated_pages++)
-	{
-		page *next_page = (page *) ((address) curr_page + sizeof(struct page));
-		next_page->next = NULL;
-		curr_page->next = next_page;
-		curr_page = next_page;
-		assert((address) segment + 4*MB > next_page);
+	// page *first_page = (page *)&segment->pages[0];	
+	// page *curr_page = first_page;
+	// size_t allocated_pages = 1;
+	// for (allocated_pages = 0; allocated_pages < segment->total_num_pages; allocated_pages++)
+	// {
+	// 	page *next_page = (page *) ((address) curr_page + sizeof(struct page));
+	// 	next_page->next = NULL;
+	// 	curr_page->next = next_page;
+	// 	curr_page = next_page;
+	// 	assert((address) segment + SEGMENT_SIZE > next_page);
+	// }
+
+	// return first_page;
+	segment->pages[0].next = NULL;
+	segment->pages[0].prev = NULL;
+	
+	for (int i=0; i<segment->total_num_pages-1; i++) {
+		segment->pages[i].next = &segment->pages[i+1];
+		segment->pages[i+1].next = NULL;
+
+		segment->pages[i+1].prev = &segment->pages[i];
 	}
 
-	return first_page;
+	segment->free_pages = &segment->pages[0];
 }
 
 #define SEGMENT_METADATA_SIZE 128
@@ -262,7 +303,8 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 {
 	// call mem_sbrk here
 	segment *new_seg = mem_sbrk(SEGMENT_SIZE); //TODO: make sure the pointer this gives us is MB aligned, a lot breaks if not
-	assert((uintptr_t)new_seg % (4 * MB) == 0);//TODO: the assertion
+	assert(get_segment(new_seg) == new_seg);//TODO: the assertion
+	assert((uintptr_t)new_seg % SEGMENT_SIZE == 0);//TODO: the assertion
 	enum page_kind_enum page_kind = get_page_kind(size);
 
 	new_seg->cpu_id = heap->cpu_id;
@@ -278,25 +320,29 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 	new_seg->num_free_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : 1; // 64 pages in small, 1 in others
 
 	// pointer to start of pages array
-	new_seg->free_pages = create_free_pages(new_seg);
+	// new_seg->free_pages = create_free_pages(new_seg);
+	create_free_pages(new_seg);
 
 	// TODO: DETERMINE PAGE AREA POINTER BASED ON SIZEOF METADATA
 	// for all pages, multiply page metadata by # num pages and add size of segment metadata
 	// set the page area ptr to this value
 	// make sure it doesnt have some weird alignment
 	// make sure the area_ptr + #num_pages * area_size <= segment_ptr + 4mb, make sure stuff is within segment
-	new_seg->pages[0].page_area = (address)((uint64_t)new_seg + sizeof(struct segment));//first page area starts after metadata for segment
-	new_seg->pages[0].reserved 
+	page *page = &new_seg->pages[0];
+	page->page_area = (address)((uint64_t)new_seg + sizeof(struct segment));//first page area starts after metadata for segment
+	page->reserved 
 		= (address)(page_kind == SMALL 
-			? (uint64_t)new_seg->pages[0].page_area + SMALL_PAGE_SIZE 
+			? (uint64_t)page->page_area + SMALL_PAGE_SIZE 
 			: (uint64_t)new_seg + SEGMENT_SIZE);
+	assert(page->reserved - (address) new_seg <= SEGMENT_SIZE);
 			
 	if (page_kind == SMALL) {
-		for (int i=1; i<NUM_PAGES; i++){
-			new_seg->pages[i].page_area = (address)((uint64_t)new_seg + SMALL_PAGE_SIZE * i);
-			new_seg->pages[i].reserved = (address)((uint64_t)new_seg->pages[i].page_area + SMALL_PAGE_SIZE);
+		for (int i=1; i<new_seg->total_num_pages; i++){
+			page = &new_seg->pages[i];
+			page->page_area = (address)((uint64_t)new_seg + SMALL_PAGE_SIZE * i);
+			page->reserved = (address)((uint64_t)page->page_area + SMALL_PAGE_SIZE);
 
-			page *page = &new_seg->pages[i];
+			assert(page->reserved - (address) new_seg <= SEGMENT_SIZE);
 		}
 	}
 
@@ -310,6 +356,19 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 	return new_seg;
 }
 
+//removes page node from doubly linked list
+void remove_page_node(page *node) {
+	page *prev, *next;
+	prev = node->prev;
+	next = node->next;
+
+	node->prev = NULL;
+	node->next = NULL;
+
+	if (prev != NULL) prev->next = next;
+	if (next != NULL) next->prev = prev;
+}
+
 // create page
 page *malloc_page(thread_heap *heap, size_t size)
 {
@@ -319,13 +378,13 @@ page *malloc_page(thread_heap *heap, size_t size)
 	segment *segment = NULL;
 
 	// check for segment with uninitialized page
-	if (get_page_kind(size) == SMALL)
+	if (get_page_kind(size) == SMALL) //only applies to small segs, in-use large/huge segs will never have a free page
 	{
-		for(struct segment *free_seg = heap->small_segment_refs; free_seg != NULL; free_seg = free_seg->next)
+		for(struct segment *seg = heap->small_segment_refs; seg != NULL; seg = seg->next)
 		{
-			if (free_seg->free_pages != NULL)
+			if (seg->free_pages != NULL)
 			{
-				segment = free_seg;
+				segment = seg;
 				break;
 			}
 		}
@@ -339,20 +398,22 @@ page *malloc_page(thread_heap *heap, size_t size)
 	}
 
 	// assume we have valid page pointer to create
-	page *first_page = segment->free_pages;
-	segment->free_pages = first_page->next;
-	first_page-> next = NULL;
-	page *page = first_page;
+	page *head = segment->free_pages;
+	segment->free_pages = head->next;
+	// head->next = NULL;
+	page *page_to_use = head;
+	remove_page_node(page_to_use);
 
 	segment->num_free_pages--;
 	segment->num_used_pages++;
 
 	// // DEBUG INFO
-	page->block_size = nearest_block_size(size); //TODO: make an array of ALL block pages_sizes possible
-	page->num_used = 0;
-	page->local_free = NULL;
-	page->thread_free = NULL;
-	page->num_thread_freed = 0; // Number of blocks freed by other threads
+	page_to_use->in_use = true;
+	page_to_use->block_size = nearest_block_size(size); //TODO: make an array of ALL block pages_sizes possible
+	page_to_use->num_used = 0;
+	page_to_use->local_free = NULL;
+	page_to_use->thread_free = NULL;
+	page_to_use->num_thread_freed = 0; // Number of blocks freed by other threads
 
 	// logic for getting number of blocks
 	// each block_t takes up sizeof(block_t) + size_class(size) = blocksize
@@ -371,8 +432,8 @@ page *malloc_page(thread_heap *heap, size_t size)
 	// page area for this specific page
 	// todo fix this pointer arithmetic
 
-	uint64_t available_space = (uint64_t)page->reserved - (uint64_t)page->page_area;
-	page->total_num_blocks = available_space/page->block_size;
+	uint64_t available_space = (uint64_t)page_to_use->reserved - (uint64_t)page_to_use->page_area;
+	page_to_use->total_num_blocks = available_space/page_to_use->block_size;
 
 	// These segments are 4MiB
 	// (or larger for huge objects that are over 512KiB), and start with the segment- and
@@ -382,25 +443,60 @@ page *malloc_page(thread_heap *heap, size_t size)
 	// TODO check that this is doing pointer arithmetic properly
 	// should account for rounding.
 	// page->capacity = page->page_area + (num_blocks * page->block_size);
-	size_t useable_space =  page->total_num_blocks * page->block_size;
-	page->capacity = (address)((uint64_t)page->page_area + useable_space);
+	size_t useable_space =  page_to_use->total_num_blocks * page_to_use->block_size;
+	page_to_use->capacity = (address)((uint64_t)page_to_use->page_area + useable_space);
+
+	// debug
+	assert((address) page_to_use->free < page_to_use->capacity);
+	// debug, turn off via compile flag or something later
+	// page->capacity = 
+	assert(page_to_use->capacity <= page_to_use->reserved);
+	assert(page_to_use->capacity - (address) segment <= SEGMENT_SIZE);
 
 	// set up block_t freelist
 	// page-> free is start of freelist
-	page->free = create_free_blocks(page);
+	// page->free = create_free_blocks(page);
+	create_free_blocks(page_to_use);
+	assert((address) page_to_use->free == (address)page_to_use->page_area);
 
-	// debug
-	assert((address) page->free == (address)page->page_area);
-	assert((address) page->free < page->capacity);
-	// debug, turn off via compile flag or something later
-	// page->capacity = 
-	assert(page->capacity - (address) segment < 4 * MB);
-
-	return page;
+	return page_to_use;
 	
 }
 
-void page_free(page *page) {}
+
+void segment_free(struct segment *segment) {
+	//TODO
+}
+
+void page_free(struct page *page) {
+	page->in_use = false;
+
+	struct segment* segment = get_segment(page);
+	assert((size_t)segment % SEGMENT_SIZE == 0);
+
+	//update heap data
+	struct page **size_class_list = &tlb[get_cpuid()].pages[size_class(page->block_size)];
+	if (*size_class_list = page) *size_class_list = page->next;
+	size_t pages_direct_idx = pages_direct_index(page->block_size);
+	if (pages_direct_idx < NUM_DIRECT_PAGES && tlb[get_cpuid()].pages_direct[pages_direct_idx] == page) {
+		tlb[get_cpuid()].pages_direct[pages_direct_idx] = NULL;
+	}
+	remove_page_node(page);//remove from heap->pages
+	
+	//update free list
+	struct page* head = segment->free_pages;
+	page->next = head;
+	head->prev = page;
+
+	segment->free_pages = page;
+	segment->num_free_pages++;
+	segment->num_used_pages--;
+	assert(segment->total_num_pages == segment->num_free_pages + segment->num_used_pages);
+
+	if (segment->num_used_pages == 0) {
+		segment_free(segment);
+	}
+}
 
 void *mm_malloc(size_t sz);
 
@@ -418,8 +514,8 @@ void *malloc_generic(thread_heap *heap, size_t size)
 			page_free(page); // add page to segment's free_pages
 		} else if (page->free != NULL && page->block_size == block_size) {
 
-			if (pages_direct_idx >= 0) {//update pages_direct entry if block size is appropriate
-				heap->pages_direct[pages_direct_idx + 1] = page;
+			if (pages_direct_idx < NUM_DIRECT_PAGES) {//update pages_direct entry if block size is appropriate
+				heap->pages_direct[pages_direct_idx] = page;
 			}
 			//TODO: When a page is found with free space, the page list is also rotated at that point so that a next search starts from that point. <- optimization
 
@@ -438,9 +534,10 @@ void *malloc_generic(thread_heap *heap, size_t size)
 	//update pointers
 	struct page *old_head = heap->pages[pages_idx];
 	page->next = old_head;
+	old_head->prev = page;
 	heap->pages[pages_idx] = page;
-	if (pages_direct_idx >= 0) {//update pages_direct entry if block size is appropriate
-		heap->pages_direct[pages_direct_idx + 1] = page;
+	if (pages_direct_idx < NUM_DIRECT_PAGES) {//update pages_direct entry if block size is appropriate
+		heap->pages_direct[pages_direct_idx] = page;
 	}
 
 	return block;
@@ -464,22 +561,23 @@ void *malloc_large(thread_heap *heap, size_t size)
 void *malloc_small(thread_heap *heap, size_t size)
 {
 	// breakpoint here to check the index of direct page
-	struct page* page = heap->pages_direct[(size + 7)>>3];
+	size_t page_index = pages_direct_index(size);
+	struct page* page = heap->pages_direct[page_index];
+	assert(page == NULL || page->block_size == (page_index+1)*8);//if the page exists, make sure it's block size is correct
+	
 	if (page == NULL || page->free == NULL)
 	{
 		return malloc_generic(heap, size);
 	}
+
 	struct block_t* block = page->free;
 	page->free = block->next;
 	page->num_used++;
 	assert(page->num_used <= page->total_num_blocks);
+	
 	return block;
 }
 
-size_t get_cpuid()
-{
-	return 1;
-}
 
 void *mm_malloc(size_t sz)
 {
@@ -495,7 +593,7 @@ void *mm_malloc(size_t sz)
 		memset(tlb[cpu_id].pages, 0, sizeof(page *) * NUM_PAGES);
 		tlb[cpu_id].cpu_id = cpu_id;
 		tlb[cpu_id].small_segment_refs = NULL;
-		tlb[cpu_id].small_page_refs = NULL;
+		// tlb[cpu_id].small_page_refs = NULL;
 	}
 
 	// breakpoint here to check tlb metadata
@@ -515,7 +613,9 @@ void mm_free(void *ptr)
 {
 	(void)ptr; /* Avoid warning about unused variable */
 	// free(ptr);
-	struct segment* segment = (struct segment *)((uintptr_t)ptr & ~(4*MB));
+	struct segment* segment = get_segment(ptr);
+	assert(segment != ptr);
+	assert((size_t)segment % SEGMENT_SIZE == 0);
 	if (segment == NULL)
 	{
 		return;
