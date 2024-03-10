@@ -544,7 +544,7 @@ void page_free(struct page *page) {
 	//update heap data
 	thread_heap *heap = &tlb[get_cpuid()];
 	struct page **size_class_list = &heap->pages[size_class(page->block_size)];
-	assert(!linked_list_contains(*size_class_list, page));//TODO: REMOVE, it is expensive
+	// assert(!linked_list_contains(*size_class_list, page));//TODO: REMOVE, it is expensive
 	assert(segment->free_pages != *size_class_list);
 	// TODO: ensure this is proper logic
 	if (*size_class_list != NULL && *size_class_list == page) *size_class_list = page->next;
