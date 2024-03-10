@@ -164,19 +164,19 @@ size_t get_cpuid()
 	return 1;
 }
 
-bool inline segment_in_use(size_t index){
+bool static inline segment_in_use(size_t index){
 	return (bool)(segment_bitmap[index/8] & (1 << (index % 8)));
 }
 
-void inline set_segment_in_use(size_t index, bool in_use) {
+void static inline set_segment_in_use(size_t index, bool in_use) {
 	segment_bitmap[index/8] |= (1 & in_use) << (index % 8);
 }
 
-size_t inline segment_address_to_index(segment *segment) {
+size_t static inline segment_address_to_index(segment *segment) {
 	return ((uint64_t)segment - (uint64_t)first_segment_address)/SEGMENT_SIZE;
 }
 
-segment inline *index_to_segment_addresss(size_t index) {
+segment static inline *index_to_segment_addresss(size_t index) {
 	return (segment *)(index*SEGMENT_SIZE + first_segment_address);
 }
 
