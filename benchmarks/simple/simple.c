@@ -69,7 +69,11 @@ extern void *worker(void *arg)
 			// 	f = f * f;
 			// }
 			*(nested[j][i]) = (struct Foo){i, i};
-			assert(nested[j][i]->x == i && nested[j][i]->y == i);
+			for (int k = 0; k <= i; k++)
+			{
+				assert(nested[j][k]->x == k && nested[j][k]->y == k);
+			}
+			
 		}
 
 		// a[0] = (struct Foo *)mm_malloc(2048 * sizeof(struct Foo)); // 8 bytes.
@@ -113,6 +117,11 @@ extern void *worker(void *arg)
 			// }
 			assert(nested[j][i]->x == i && nested[j][i]->y == i);
 			printf ("freeing iteration %d object %d\n", j, i);
+			// check that future objects are not affected
+			for (int k = i; k < (nobjects / nthreads); k++)
+			{
+				assert(nested[j][k]->x == k && nested[j][k]->y == k);
+			}
 			mm_free(nested[j][i]);
 		}
 
