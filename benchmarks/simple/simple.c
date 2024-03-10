@@ -39,26 +39,28 @@ extern void *worker(void *arg)
 	int i, j;
 	volatile int d;
 	struct Foo **a;
+	struct Foo ***nested;
 #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
 	int cpu = (int)arg; // cpu number will fit in an int, ignore warning
 #pragma GCC diagnostic pop
 
 	setCPU(cpu);
 
-	a = (struct Foo **)mm_malloc((nobjects / nthreads) * sizeof(struct Foo *));
-
 	// alloc small object bigger than size*sizeof(struct foo) to ensure "fresh" page area
 
-	struct Foo *page_override = (struct Foo *)mm_malloc(8 * sizeof(struct Foo));
-
+	// struct Foo *page_override = (struct Foo *)mm_malloc(8 * sizeof(struct Foo));
+	nested = (struct Foo ***)mm_malloc(niterations * sizeof(struct Foo **));
 	// now should be allocating to fresh page for 8byte objects
 	for (j = 0; j < niterations; j++)
 	{
 
+		nested[j] = (struct Foo **)mm_malloc((nobjects / nthreads) * sizeof(struct Foo *));
+
 		// printf ("a %d\n", j);
 		for (i = 0; i < (nobjects / nthreads); i++)
 		{
-			a[i] = (struct Foo *)mm_malloc(2048 * sizeof(struct Foo)); // 8 bytes.
+			printf ("malloc iteration %d object %d\n", j, i);
+			nested[j][i] = (struct Foo *)mm_malloc(sizeof(struct Foo *)); // 8 bytes.
 			// for (d = 0; d < work; d++) {
 			// 	volatile int f = 1;
 			// 	f = f + f;
@@ -66,29 +68,59 @@ extern void *worker(void *arg)
 			// 	f = f + f;
 			// 	f = f * f;
 			// }
-			assert(a[i]);
+			*(nested[j][i]) = (struct Foo){i, i};
+			assert(nested[j][i]->x == i && nested[j][i]->y == i);
 		}
 
-		// free objects
-		for (i = 0; i < (nobjects / nthreads); i ++) {
-		  	mm_free(a[i]);
-		  	// for (d = 0; d < work; d++) {
+		// a[0] = (struct Foo *)mm_malloc(2048 * sizeof(struct Foo)); // 8 bytes.
+			
+	}
+	// struct Foo *b = (struct Foo *)mm_malloc(16 * sizeof(struct Foo));
+	// struct Foo *c = (struct Foo *)mm_malloc(16376);
+	// struct Foo *testv = (struct Foo *)mm_malloc(4 * sizeof(struct Foo)); // 8 bytes.
+	// struct Foo *z = (struct Foo *)mm_malloc(16380);
+
+	for (j = 0; j < niterations; j++)
+	{
+		// printf ("a %d\n", j);
+		for (i = 0; i < (nobjects / nthreads); i++)
+		{
+			// [i] = (struct Foo *)mm_malloc(8); // 8 bytes.
+			// for (d = 0; d < work; d++) {
 			// 	volatile int f = 1;
 			// 	f = f + f;
 			// 	f = f * f;
 			// 	f = f + f;
 			// 	f = f * f;
 			// }
+			assert(nested[j][i]->x == i && nested[j][i]->y == i);
 		}
 
-		a[0] = (struct Foo *)mm_malloc(2048 * sizeof(struct Foo)); // 8 bytes.
-			
+		// a[0] = (struct Foo *)mm_malloc(2048 * sizeof(struct Foo)); // 8 bytes.
 	}
 
-	struct Foo *b = (struct Foo *)mm_malloc(16 * sizeof(struct Foo));
-	struct Foo *c = (struct Foo *)mm_malloc(16376);
-	struct Foo *testv = (struct Foo *)mm_malloc(4 * sizeof(struct Foo)); // 8 bytes.
-	struct Foo *z = (struct Foo *)mm_malloc(16380);
+	for (j = 0; j < niterations; j++)
+	{
+		for (i = 0; i < (nobjects / nthreads); i++)
+		{
+			// [i] = (struct Foo *)mm_malloc(8); // 8 bytes.
+			// for (d = 0; d < work; d++) {
+			// 	volatile int f = 1;
+			// 	f = f + f;
+			// 	f = f * f;
+			// 	f = f + f;
+			// 	f = f * f;
+			// }
+			assert(nested[j][i]->x == i && nested[j][i]->y == i);
+			printf ("freeing iteration %d object %d\n", j, i);
+			mm_free(nested[j][i]);
+		}
+
+		// a[0] = (struct Foo *)mm_malloc(2048 * sizeof(struct Foo)); // 8 bytes.
+		mm_free(nested[j]);
+	}
+
+	mm_free(nested);
 
 	return NULL;
 }
@@ -129,11 +161,17 @@ int main(int argc, char *argv[])
 
 	//SMALL TEST: malloc, then free, should free page for reuse by next malloc
 	// 			when we have segment free, the entire segment should be freed
-	long *small = mm_malloc(8);
-	mm_free(small);
-	long *bigger = mm_malloc(32);
-	mm_free(bigger);
+	// long *small = mm_malloc(8);
+	// mm_free(small);
+	// long *bigger = mm_malloc(32);
+	// mm_free(bigger);
 
+	// // large segment
+	// long *even_bigger = mm_malloc(16376);
+	// mm_free(even_bigger);
+	// long *even_bigger1 = mm_malloc(16376);
+	// mm_free(even_bigger1);
+	// return;
 	// malloc of size 8
 	pthread_t *threads = (pthread_t *)mm_malloc(nthreads * sizeof(pthread_t));
 	int numCPU = getNumProcessors();
