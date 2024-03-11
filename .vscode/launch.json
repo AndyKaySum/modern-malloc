@@ -10,7 +10,8 @@
             "request": "launch",
             "program": "${workspaceFolder}/benchmarks/linux-scalability/linux-scalability-a2alloc-dbg",
             // 	for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
-            "args": ["1", "128", "100000", "0", "1"],
+            // "args": ["1", "128", "100000"],
+            "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
@@ -36,7 +37,8 @@
             "request": "launch",
             "program": "${workspaceFolder}/benchmarks/linux-scalability/linux-scalability-a2alloc-dbg",
             // 	for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
-            "args": ["2", "128", "100000", "0", "1"],
+            // "args": ["2", "128", "100000", "0", "1"],
+            "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
