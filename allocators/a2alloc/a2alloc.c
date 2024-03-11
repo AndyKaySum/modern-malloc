@@ -185,7 +185,7 @@ void static inline atomic_push(struct block_t *_Atomic *list, struct block_t *bl
 	// set value pointed to by list to block (make block head)
 	// therefore, when the while terminates, block is head of list,
 	// and rest of list is pointed to by block
-	while (!atomic_compare_exchange_strong(list, &block->next, &block))
+	while (!atomic_compare_exchange_strong(list, &block->next, block))
 		;
 }
 
@@ -312,16 +312,19 @@ void page_collect(page *page)
 		return;
 	// append freelist to thread freelist
 	struct block_t *tail = tfree;
-	size_t thread_freelist_num = 1;
+	size_t thread_freelist_length = 1;
 	while (tail->next != NULL) {
+		assert((uint64_t) tail >= (uint64_t) page->page_area);
+		assert((uint64_t) tail < (uint64_t) page->reserved);
+
 		tail = tail->next;
-		thread_freelist_num ++;
+		thread_freelist_length ++;
 	}
 
 	// update num_thread_freed and num_used
-	assert(thread_freelist_num <= page->total_num_blocks);
-	size_t old = atomic_fetch_sub(&page->num_thread_freed, thread_freelist_num);
-	page->num_used -= thread_freelist_num;
+	assert(thread_freelist_length <= page->total_num_blocks);
+	size_t old = atomic_fetch_sub(&page->num_thread_freed, thread_freelist_length);
+	page->num_used -= thread_freelist_length;
 
 	assert(old <= page->total_num_blocks);
 
