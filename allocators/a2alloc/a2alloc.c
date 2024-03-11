@@ -419,6 +419,11 @@ segment *malloc_huge_segment(thread_heap *heap, size_t size)
 			else
 			{
 				num_contiguous++;
+				if (num_contiguous == num_contiguous_segments_required)
+				{
+					break;
+				}
+				
 			}
 		}
 	}
@@ -920,7 +925,6 @@ void mm_free(void *ptr)
 	struct block_t *block = (struct block_t *)ptr;
 
 	size_t id = get_cpuid();
-	assert(tlb[id].init == true);
 	if (id == segment->cpu_id)
 	{ // local free
 		block->next = page->local_free;
