@@ -145,7 +145,7 @@ struct thread_heap
 	uint8_t padding[CACHESIZE - 40]; // ensure that false sharing does not occur for this, TODO
 } typedef thread_heap;
 
-#define NUM_CPUS 40
+#define NUM_CPUS 267
 // pointers to thread-local heaps
 thread_heap *tlb;
 
@@ -159,7 +159,8 @@ thread_heap *tlb;
 
 size_t get_cpuid()
 {
-	int id = sched_getcpu();
+	static __thread int id = -1;
+	if (id == -1) id = sched_getcpu();
 	assert(id >= 0);
 	assert(id < NUM_CPUS);
 	return (size_t)id;
@@ -558,7 +559,6 @@ page *malloc_page(thread_heap *heap, size_t size)
 	page_to_use->capacity = (address)((uint64_t)page_to_use->page_area + useable_space);
 
 	// debug
-	assert((address)page_to_use->free < page_to_use->capacity);
 	// debug, turn off via compile flag or something later
 	// page->capacity =
 	assert(page_to_use->capacity <= page_to_use->reserved);
@@ -569,6 +569,7 @@ page *malloc_page(thread_heap *heap, size_t size)
 	// page->free = create_free_blocks(page);
 	create_free_blocks(page_to_use);
 	assert((address)page_to_use->free == (address)page_to_use->page_area);
+	assert((address)page_to_use->free < page_to_use->capacity);
 
 	return page_to_use;
 }
@@ -597,6 +598,7 @@ void page_free(struct page *page)
 
 	// update heap data
 	thread_heap *heap = &tlb[get_cpuid()];
+	assert(heap->init == true);
 	struct page **size_class_list = &heap->pages[size_class(page->block_size)];
 	// assert(!linked_list_contains(*size_class_list, page));//TODO: REMOVE, it is expensive
 	assert(segment->free_pages != *size_class_list);
@@ -741,7 +743,7 @@ void *mm_malloc(size_t sz)
 	// if local thread heap is not initialized
 	if (!tlb[cpu_id].init)
 	{
-		tlb[cpu_id].init = 1;
+		tlb[cpu_id].init = true;
 		memset(tlb[cpu_id].pages_direct, 0, sizeof(page *) * NUM_DIRECT_PAGES);
 		memset(tlb[cpu_id].pages, 0, sizeof(page *) * NUM_PAGES);
 		tlb[cpu_id].cpu_id = cpu_id;
@@ -784,7 +786,9 @@ void mm_free(void *ptr)
 
 	struct block_t *block = (struct block_t *)ptr;
 
-	if (get_cpuid() == segment->cpu_id)
+	size_t id = get_cpuid();
+	assert(tlb[id].init == true);
+	if (id == segment->cpu_id)
 	{ // local free
 		block->next = page->local_free;
 		page->local_free = block;
@@ -833,7 +837,6 @@ void mm_free(void *ptr)
 
 int mm_init(void)
 {
-	pthread_mutex_lock(&segment_bitmap_lock);
 
 	if (dseg_lo == NULL && dseg_hi == NULL)
 	{
@@ -854,17 +857,18 @@ int mm_init(void)
 
 		for (int i = 0; i < NUM_CPUS; i++)
 		{
-			tlb[i].init = 0;
+			tlb[i].init = false;
 		}
 
 		first_segment_address = NEXT_ADDRESS;
-		// num_segments_capacity =
+		pthread_mutex_lock(&segment_bitmap_lock);
+		// num_segments_capacity = //TODO
+		pthread_mutex_unlock(&segment_bitmap_lock);
 
 		memset(segment_bitmap, 0, sizeof(uint8_t) * MAX_NUM_SEGMENTS);
 
 		return init;
 	}
-	pthread_mutex_unlock(&segment_bitmap_lock);
 
 	return 0;
 }
