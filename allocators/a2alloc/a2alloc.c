@@ -64,7 +64,7 @@ static const size_t all_sizes[NUM_TOTAL_SIZES] = {8, 16, 24, 32, 40, 48, 56, 64,
 
 #define MEM_LIMIT (256 * MB)
 #define MAX_NUM_SEGMENTS (MEM_LIMIT / SEGMENT_SIZE) // max number of segments possible (assuming we start at an aligned address)
-uint8_t segment_bitmap[(MAX_NUM_SEGMENTS+7)/8];//ceil division by size of byte
+uint8_t segment_bitmap[MAX_NUM_SEGMENTS];//TODO: this size is overkill
 // pthread_mutex_t lock;
 pthread_mutex_t segment_bitmap_lock = PTHREAD_MUTEX_INITIALIZER;
 
