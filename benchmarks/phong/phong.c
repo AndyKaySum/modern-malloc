@@ -16,7 +16,7 @@
 #include "memlib.h"
 
 
-#define	N_THREAD	256
+#define	N_THREAD	8
 #define N_ALLOC		1000000
 static int		Nthread = N_THREAD;
 static int		Nalloc = N_ALLOC;
