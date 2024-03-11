@@ -328,7 +328,7 @@ void page_collect(page *page)
 
 	assert(old <= page->total_num_blocks);
 
-
+	// TODO remove 
 	size_t new_num_thread_freed = atomic_load(&page->num_thread_freed);
 	assert(new_num_thread_freed <= page->total_num_blocks);
 	tail->next = page->free;
