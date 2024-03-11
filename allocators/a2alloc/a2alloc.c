@@ -308,11 +308,11 @@ void page_collect(page *page)
 
 	// move the thread num_free_pages list atomically
 	// TODO
-	struct page *tfree = atomic_exchange(&page->thread_free, NULL);
+	struct block_t *tfree = atomic_exchange(&page->thread_free, NULL);
 	if (tfree == NULL)
 		return;
 	// append freelist to thread freelist
-	struct page *tail = tfree;
+	struct block_t *tail = tfree;
 	while (tail->next != NULL)
 		tail = tail->next;
 	tail->next = page->free;
@@ -360,10 +360,12 @@ void create_free_blocks(struct page *page)
 		assert(page->capacity > (address)curr);
 		assert(page->capacity > (address)next);
 	}
-	page->free = page->page_area;
+	page->free = (struct block_t *) page->page_area;
 }
 
-void *create_free_pages(struct segment *segment)
+
+// modify segment, creating free pages inside it and updating metadata to reflect change.
+void create_free_pages(struct segment *segment)
 {
 	// page *first_page = (page *)&segment->pages[0];
 	// page *curr_page = first_page;
