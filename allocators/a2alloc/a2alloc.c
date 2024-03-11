@@ -43,9 +43,9 @@ typedef uint8_t *address;
 #define NUM_PAGES 18 // 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, >524288
 // static const size_t pages_sizes[NUM_PAGES] = {8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
 
-#define NUM_DIRECT_PAGES 128
-#define NUM_TOTAL_SIZES 137
-static const size_t all_sizes[NUM_TOTAL_SIZES] = {8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 328, 336, 344, 352, 360, 368, 376, 384, 392, 400, 408, 416, 424, 432, 440, 448, 456, 464, 472, 480, 488, 496, 504, 512, 520, 528, 536, 544, 552, 560, 568, 576, 584, 592, 600, 608, 616, 624, 632, 640, 648, 656, 664, 672, 680, 688, 696, 704, 712, 720, 728, 736, 744, 752, 760, 768, 776, 784, 792, 800, 808, 816, 824, 832, 840, 848, 856, 864, 872, 880, 888, 896, 904, 912, 920, 928, 936, 944, 952, 960, 968, 976, 984, 992, 1000, 1008, 1016, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
+#define NUM_DIRECT_PAGES 128 //8, 16, 24, 32, 40, .. 1024
+// #define NUM_TOTAL_SIZES 137 //8, 16, 24, 32, 40, .. 1024, 2^11, 2^12, ..., 2^19
+// static const size_t all_sizes[NUM_TOTAL_SIZES] = {8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 328, 336, 344, 352, 360, 368, 376, 384, 392, 400, 408, 416, 424, 432, 440, 448, 456, 464, 472, 480, 488, 496, 504, 512, 520, 528, 536, 544, 552, 560, 568, 576, 584, 592, 600, 608, 616, 624, 632, 640, 648, 656, 664, 672, 680, 688, 696, 704, 712, 720, 728, 736, 744, 752, 760, 768, 776, 784, 792, 800, 808, 816, 824, 832, 840, 848, 856, 864, 872, 880, 888, 896, 904, 912, 920, 928, 936, 944, 952, 960, 968, 976, 984, 992, 1000, 1008, 1016, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
 
 #define CACHESIZE 128 /* Should cover most machines. */ // NOTE: copied from Ex2
 #define MB 1048576										// 2^20 bytes
@@ -96,8 +96,6 @@ struct page
 	// DEBUG INFO
 	size_t block_size; // size_class
 
-	bool in_use; // for sanity check/debugging, false if is free, true if being used
-
 	struct page *next, *prev; // for free page linked list and for pages (in heap) linked list, DO NOT USE ANYWHERE ELSE (will mess up free/pages)
 } typedef page;
 
@@ -123,8 +121,6 @@ struct segment
 	size_t num_free_pages;
 	page *free_pages;					 // only relevant for small pages
 	page pages[NUM_PAGES_SMALL_SEGMENT]; // pointer to array of page metadata (can be size 1)
-
-	bool in_use; // for sanity check/debugging
 
 	size_t num_contiguous_segments; // only for page_kind = HUGE, if object is >4MB.
 	struct segment *next, *prev;	// pointer to next segment for small_segment_refs in thread_heap
@@ -242,22 +238,22 @@ segment static inline *index_to_segment_address(size_t index)
 #define pages_direct_index(size) ((((size) + 7) >> 3) - 1)
 
 // get index into all_sizes
-size_t static inline nearest_block_size_index(size)
-{
-	if (size <= MALLOC_SMALL_THRESHOLD)
-		return pages_direct_index(size);
-	if (size <= MALLOC_LARGE_THRESHOLD)
-		return nearest_block_size_index(MALLOC_SMALL_THRESHOLD) + ceill(log2(size)) - ceill(log2(MALLOC_SMALL_THRESHOLD));
-	return nearest_block_size_index(MALLOC_LARGE_THRESHOLD) + 1; // NOTE: this index is outside of all_sizes, meant for error checking
-}
+// size_t static inline nearest_block_size_index(size)
+// {
+// 	if (size <= MALLOC_SMALL_THRESHOLD)
+// 		return pages_direct_index(size);
+// 	if (size <= MALLOC_LARGE_THRESHOLD)
+// 		return nearest_block_size_index(MALLOC_SMALL_THRESHOLD) + ceill(log2(size)) - ceill(log2(MALLOC_SMALL_THRESHOLD));
+// 	return nearest_block_size_index(MALLOC_LARGE_THRESHOLD) + 1; // NOTE: this index is outside of all_sizes, meant for error checking
+// }
 
 // NOTE: in pages (the linked list) the list for 32 block size has to be able to hold 24 block size pages, otherwise we would not be able
 //		to have 24 block sized pages in pages direct (more than 1 at least)
 size_t static inline nearest_block_size(size_t size)
 {
-	if (size > MALLOC_LARGE_THRESHOLD)
-		return size; // HUGE pages have custom block sizes, the pages only contain one block
-	return all_sizes[nearest_block_size_index(size)];
+	if (size <= MALLOC_SMALL_THRESHOLD) return ((size + 7)/8)*8;
+	if (size <= MALLOC_LARGE_THRESHOLD) return pow(2, ceil(log2(size)));//LARGE pages are powers
+	return size; // HUGE pages have custom block sizes, the pages only contain one block
 }
 
 // TODO make this deterministic, getting size class should just be 2 calculations
@@ -328,9 +324,7 @@ void page_collect(page *page)
 
 	assert(old <= page->total_num_blocks);
 
-	// TODO remove 
-	size_t new_num_thread_freed = atomic_load(&page->num_thread_freed);
-	assert(new_num_thread_freed <= page->total_num_blocks);
+	assert(atomic_load(&page->num_thread_freed) <= page->total_num_blocks);
 	tail->next = page->free;
 	page->free = tfree; // head of thread freelist is now head of free list
 
@@ -509,6 +503,7 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 				new_seg = index_to_segment_address(i);
 				num_segments_free--;
 				set_segment_in_use(i, true);
+				break;
 			}
 		}
 	}
@@ -649,7 +644,6 @@ page *malloc_page(thread_heap *heap, size_t size)
 	segment->num_used_pages++;
 
 	// // DEBUG INFO
-	page_to_use->in_use = true;
 	page_to_use->block_size = nearest_block_size(size); // TODO: make an array of ALL block pages_sizes possible
 	page_to_use->num_used = 0;
 	page_to_use->local_free = NULL;
@@ -719,14 +713,13 @@ void segment_free(struct segment *segment)
 	if (heap->small_segment_refs == segment)
 		heap->small_segment_refs = segment->next;
 	remove_segment_node(segment);
+	assert(heap->small_segment_refs != segment);
 
 	pthread_mutex_unlock(&segment_bitmap_lock);
 }
 
 void page_free(struct page *page)
 {
-	page->in_use = false;
-
 	struct segment *segment = get_segment(page);
 	assert(!linked_list_contains(segment->free_pages, page)); // TODO: REMOVE, it is expensive
 
