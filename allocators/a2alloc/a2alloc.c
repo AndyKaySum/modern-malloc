@@ -620,7 +620,7 @@ page *malloc_page(thread_heap *heap, size_t size)
 	// head->next = NULL;
 	remove_page_node(head);
 	struct page *page_to_use = head;
-	assert(!linked_list_contains(segment->free_pages, page_to_use)); // TODO: REMOVE, it is expensive
+	// assert(!linked_list_contains(segment->free_pages, page_to_use)); // TODO: REMOVE, it is expensive
 	assert(segment->free_pages != page_to_use);						 // should our page should be removed from free list
 	assert(segment->free_pages == NULL || segment->free_pages->prev == NULL);
 	assert(page_to_use->next == NULL);
@@ -709,7 +709,7 @@ void page_free(struct page *page)
 	page->in_use = false;
 
 	struct segment *segment = get_segment(page);
-	assert(!linked_list_contains(segment->free_pages, page)); // TODO: REMOVE, it is expensive
+	// assert(!linked_list_contains(segment->free_pages, page)); // TODO: REMOVE, it is expensive
 
 	assert((size_t)segment % SEGMENT_SIZE == 0);
 
@@ -740,7 +740,7 @@ void page_free(struct page *page)
 		head->prev = page;
 	assert(page->next != page);
 	assert(page->prev != page);
-	assert(!linked_list_contains(segment->free_pages, page)); // TODO: REMOVE, it is expensive
+	// assert(!linked_list_contains(segment->free_pages, page)); // TODO: REMOVE, it is expensive
 	segment->free_pages = page;
 	segment->num_free_pages++;
 	segment->num_used_pages--;
@@ -804,7 +804,7 @@ void *malloc_generic(thread_heap *heap, size_t size)
 	assert(page->prev != page);
 
 	struct page *old_head = heap->pages[pages_idx];
-	assert(!linked_list_contains(old_head, page)); // TODO: REMOVE, it is expensive
+	// assert(!linked_list_contains(old_head, page)); // TODO: REMOVE, it is expensive
 	page->next = old_head;
 	if (old_head != NULL)
 		old_head->prev = page;
@@ -919,7 +919,7 @@ void mm_free(void *ptr)
 	assert((segment->page_kind != SMALL && page_index == 0) || page_index < NUM_PAGES_SMALL_SEGMENT); // TODO: adjust for small pages or remove if not easy to do that
 
 	page *page = &segment->pages[page_index];
-	assert(!linked_list_contains(segment->free_pages, page)); // TODO: REMOVE, it is expensive
+	// assert(!linked_list_contains(segment->free_pages, page)); // TODO: REMOVE, it is expensive
 	assert(page != segment->free_pages);
 
 	struct block_t *block = (struct block_t *)ptr;
