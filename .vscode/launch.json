@@ -5,6 +5,58 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Linux 1",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/benchmarks/linux-scalability/linux-scalability-a2alloc-dbg",
+            // 	for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
+            "args": ["1", "128", "100000", "0", "1"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prerun"
+        },
+        {
+            "name": "Linux 2",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/benchmarks/linux-scalability/linux-scalability-a2alloc-dbg",
+            // 	for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
+            "args": ["2", "128", "100000", "0", "1"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prerun"
+        },
+        {
             "name": "Simple Debug",
             "type": "cppdbg",
             "request": "launch",
