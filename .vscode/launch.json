@@ -5,12 +5,12 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Larson 1",
+            "name": "Larson 8",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/benchmarks/larson/larson-a2alloc-dbg",
             // 	for %d threads, sleep_cnt, min_size, max_size, chperthread, num_rounds, seed
-            "args": ["1", "15", "8", "40", "10000", "10", "1"],
+            "args": ["8", "30", "8", "40", "10000", "10", "1"],
             // "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
