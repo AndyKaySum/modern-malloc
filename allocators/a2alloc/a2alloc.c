@@ -42,13 +42,15 @@ typedef uint8_t *address;
 #define NUM_PAGES 17
 static const size_t pages_sizes[NUM_PAGES] = {8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
 
-#define NUM_DIRECT_PAGES 64
-#define NUM_TOTAL_SIZES 74
-static const size_t all_sizes[NUM_TOTAL_SIZES] = {8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 328, 336, 344, 352, 360, 368, 376, 384, 392, 400, 408, 416, 424, 432, 440, 448, 456, 464, 472, 480, 488, 496, 504, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
+#define NUM_DIRECT_PAGES 128
+#define NUM_TOTAL_SIZES 137
+static const size_t all_sizes[NUM_TOTAL_SIZES] = {8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 328, 336, 344, 352, 360, 368, 376, 384, 392, 400, 408, 416, 424, 432, 440, 448, 456, 464, 472, 480, 488, 496, 504, 512, 520, 528, 536, 544, 552, 560, 568, 576, 584, 592, 600, 608, 616, 624, 632, 640, 648, 656, 664, 672, 680, 688, 696, 704, 712, 720, 728, 736, 744, 752, 760, 768, 776, 784, 792, 800, 808, 816, 824, 832, 840, 848, 856, 864, 872, 880, 888, 896, 904, 912, 920, 928, 936, 944, 952, 960, 968, 976, 984, 992, 1000, 1008, 1016, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
 
 #define CACHESIZE 128 /* Should cover most machines. */ // NOTE: copied from Ex2
 #define MB 1048576										// 2^20 bytes
 #define KB 1024											// 2^10 bytes
+
+#define MALLOC_SMALL_THRESHOLD 1024
 
 #define SEGMENT_SIZE (4 * MB)
 #define NUM_PAGES_SMALL_SEGMENT 64
@@ -107,8 +109,6 @@ enum page_kind_enum
 /// Use segment alignment to get the pointer to ptr's "parent" segment
 #define get_segment(ptr) (struct segment *)((uintptr_t)(ptr) >> 22 << 22)
 
-
-
 struct segment
 {
 	size_t cpu_id;				   // owner CPUID
@@ -159,7 +159,8 @@ thread_heap *tlb;
 size_t get_cpuid()
 {
 	static __thread int id = -1;
-	if (id == -1) id = sched_getcpu();
+	if (id == -1)
+		id = sched_getcpu();
 	// assert(id == sched_getcpu());
 	assert(id >= 0);
 	assert(id < NUM_CPUS);
@@ -171,17 +172,18 @@ bool static inline segment_in_use(size_t index)
 	return (bool)(segment_bitmap[index / 8] & (1 << (index % 8)));
 }
 
-void static inline atomic_push(struct block_t * _Atomic *list, struct block_t * block)
+void static inline atomic_push(struct block_t *_Atomic *list, struct block_t *block)
 {
-	//set block to be the head of the list
-	// first, make block->next point to the rest of the list
+	// set block to be the head of the list
+	//  first, make block->next point to the rest of the list
 	block->next = *list;
 	// when CAS fails (list != &block->next): block->next is set to list, loop again
-	// when CAS succeeds (block->next == list), 
+	// when CAS succeeds (block->next == list),
 	// set value pointed to by list to block (make block head)
-	// therefore, when the while terminates, block is head of list, 
+	// therefore, when the while terminates, block is head of list,
 	// and rest of list is pointed to by block
-	while (!atomic_compare_exchange_strong(list, &block->next, &block));
+	while (!atomic_compare_exchange_strong(list, &block->next, &block))
+		;
 }
 
 void static inline set_segment_in_use(size_t index, bool in_use)
@@ -285,18 +287,21 @@ void page_collect(page *page)
 
 	// move the thread num_free_pages list atomically
 	// TODO
-	struct page *tfree = atomic_exchange( &page->thread_free, NULL );
-	if (tfree == NULL) return;
-	//append freelist to thread freelist
+	struct page *tfree = atomic_exchange(&page->thread_free, NULL);
+	if (tfree == NULL)
+		return;
+	// append freelist to thread freelist
 	struct page *tail = tfree;
-	while (tail->next != NULL) tail = tail->next;
+	while (tail->next != NULL)
+		tail = tail->next;
 	tail->next = page->free;
-	page->free = tfree;//head of thread freelist is now head of free list
+	page->free = tfree; // head of thread freelist is now head of free list
 }
 
 enum page_kind_enum get_page_kind(size_t size)
 {
-	if (size <= 1024)
+	if (size <= MALLOC_SMALL_THRESHOLD)
+		// TODO set this back to 1024 (KB)
 		return SMALL;
 	if (size < 512 * KB)
 		return LARGE;
@@ -383,6 +388,7 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 				return seg;
 		}
 	}
+
 	pthread_mutex_lock(&segment_bitmap_lock);
 	if (new_seg == NULL && num_segments_free > 0)
 	{
@@ -401,6 +407,7 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 	if (new_seg == NULL)
 	{
 		new_seg = mem_sbrk(SEGMENT_SIZE);
+		assert(new_seg != NULL);
 		set_segment_in_use(num_segments_allocated, true);
 		num_segments_allocated++;
 		assert(num_segments_allocated <= num_segments_capacity);
@@ -410,7 +417,7 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 	assert(get_segment(new_seg) == new_seg);		// TODO: the assertion
 	assert((uintptr_t)new_seg % SEGMENT_SIZE == 0); // TODO: the assertion
 	enum page_kind_enum page_kind = get_page_kind(size);
-
+	assert(page_kind != HUGE);
 	new_seg->cpu_id = heap->cpu_id;
 	// (From paper)...
 	// we can calculate the page index by taking the difference and shifting by the
@@ -592,7 +599,8 @@ void segment_free(struct segment *segment)
 	size_t id = get_cpuid();
 	thread_heap *heap = &tlb[id];
 	assert(id == heap->cpu_id && heap->init);
-	if (heap->small_segment_refs == segment) heap->small_segment_refs = segment->next;
+	if (heap->small_segment_refs == segment)
+		heap->small_segment_refs = segment->next;
 	remove_segment_node(segment);
 	num_segments_free++;
 	pthread_mutex_unlock(&segment_bitmap_lock);
@@ -728,7 +736,9 @@ void *malloc_large(thread_heap *heap, size_t size)
 void *malloc_small(thread_heap *heap, size_t size)
 {
 	// breakpoint here to check the index of direct page
+	// assert(size <)
 	size_t page_index = pages_direct_index(size);
+	assert(page_index < NUM_DIRECT_PAGES);
 	struct page *page = heap->pages_direct[page_index];
 	assert(page == NULL || page->block_size == (page_index + 1) * 8); // if the page exists, make sure it's block size is correct
 
@@ -763,7 +773,7 @@ void *mm_malloc(size_t sz)
 	}
 
 	// breakpoint here to check tlb metadata
-	if (sz <= 8 * KB)
+	if (sz <= MALLOC_SMALL_THRESHOLD)
 	{
 		return malloc_small(&tlb[cpu_id], sz);
 	}
@@ -809,8 +819,8 @@ void mm_free(void *ptr)
 	}
 	else
 	{ // non-local free TODO: finish this, make fields that need to be atomic actually atomic
-		atomic_push( &page->thread_free, block);
-		atomic_fetch_add( &page->num_thread_freed, 1 );
+		atomic_push(&page->thread_free, block);
+		atomic_fetch_add(&page->num_thread_freed, 1);
 	}
 }
 
