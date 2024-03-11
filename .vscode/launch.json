@@ -138,12 +138,12 @@
             "preLaunchTask": "prerun"
         },
         {
-            "name": "Threadtest 2 Thread Debug",
+            "name": "Threadtest 3 Thread Debug",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/benchmarks/threadtest/threadtest-a2alloc-dbg",
             // 	threadtest for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
-            "args": ["2", "50", "30000", "0", "1"],
+            "args": ["3", "10000", "420", "10"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
