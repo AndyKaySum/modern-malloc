@@ -305,9 +305,7 @@ void page_collect(page *page)
 {
 	page->free = page->local_free; // move the local num_free_pages list
 	page->local_free = NULL;
-
 	// move the thread num_free_pages list atomically
-	// TODO
 	struct block_t *tfree = atomic_exchange(&page->thread_free, NULL);
 	if (tfree == NULL)
 		return;
@@ -360,9 +358,8 @@ void create_free_blocks(struct page *page)
 		assert(page->capacity > (address)curr);
 		assert(page->capacity > (address)next);
 	}
-	page->free = (struct block_t *) page->page_area;
+	page->free = (struct block_t *)page->page_area;
 }
-
 
 // modify segment, creating free pages inside it and updating metadata to reflect change.
 void create_free_pages(struct segment *segment)
@@ -765,7 +762,12 @@ void *malloc_generic(thread_heap *heap, size_t size)
 	{
 		assert(page->next != page);
 		assert(page->prev != page);
-		page_collect(page);
+
+		// only collect page if no block references available. 
+		if(page->free == NULL){
+			page_collect(page);
+		}
+
 		if (page->num_used - atomic_load(&page->num_thread_freed) == 0)
 		{					 // objects currently used - objects freed by other threads = 0
 			page_free(page); // add page to segment's free_pages
@@ -841,8 +843,11 @@ void *malloc_small(thread_heap *heap, size_t size)
 	size_t page_index = pages_direct_index(size);
 	assert(page_index < NUM_DIRECT_PAGES);
 	struct page *page = heap->pages_direct[page_index];
-	assert(page == NULL || page->block_size == (page_index + 1) * 8); // if the page exists, make sure it's block size is correct
+	// if the page exists, make sure it's block size is correct
+	assert(page == NULL || page->block_size == (page_index + 1) * 8);
 
+	// similarly, if the page exists but page->free is NULL
+	assert(page == NULL || page->free != NULL || page->free == NULL && page->num_used > 5);
 	if (page == NULL || page->free == NULL)
 	{
 		return malloc_generic(heap, size);
@@ -892,6 +897,7 @@ void *mm_malloc(size_t sz)
 
 void mm_free(void *ptr)
 {
+
 	(void)ptr; /* Avoid warning about unused variable */
 	// free(ptr);
 	if (ptr == NULL)

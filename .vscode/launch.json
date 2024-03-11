@@ -163,6 +163,32 @@
             "preLaunchTask": "prerun"
         },
         {
+            "name": "Threadtest 8thread oddobjects",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/benchmarks/threadtest/threadtest-a2alloc-dbg",
+            // 	threadtest for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
+            "args": ["8", "50", "30000", "0", "19"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prerun"
+        },
+        {
             "name": "Phong Default",
             "type": "cppdbg",
             "request": "launch",
