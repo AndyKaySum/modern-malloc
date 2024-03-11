@@ -1,5 +1,7 @@
 {
     "files.associations": {
+        "*.ddl": "postgres",
+        "*.sql": "postgres",
         "__hash_table": "c",
         "array": "c",
         "charconv": "c",
@@ -11,7 +13,11 @@
         "string_view": "c",
         "initializer_list": "c",
         "utility": "c",
-        "assert.h": "c"
+        "assert.h": "c",
+        "memlib.h": "c"
     },
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "cSpell.words": [
+        "getcpu"
+    ]
 }

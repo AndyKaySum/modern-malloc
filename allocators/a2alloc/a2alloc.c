@@ -90,8 +90,7 @@ struct page
 	address capacity; // end of last usable block
 	address reserved; // end of page area (such that entire segment is 4MB-aligned)
 	// DEBUG INFO
-	size_t size_class; // return of size_class
-	size_t block_size; // size_class + sizeof(block_t)
+	size_t block_size; // size_class
 
 	bool in_use; // for sanity check/debugging, false if is free, true if being used
 
@@ -161,6 +160,7 @@ size_t get_cpuid()
 {
 	static __thread int id = -1;
 	if (id == -1) id = sched_getcpu();
+	// assert(id == sched_getcpu());
 	assert(id >= 0);
 	assert(id < NUM_CPUS);
 	return (size_t)id;
@@ -285,6 +285,13 @@ void page_collect(page *page)
 
 	// move the thread num_free_pages list atomically
 	// TODO
+	struct page *tfree = atomic_exchange( &page->thread_free, NULL );
+	if (tfree == NULL) return;
+	//append freelist to thread freelist
+	struct page *tail = tfree;
+	while (tail->next != NULL) tail = tail->next;
+	tail->next = page->free;
+	page->free = tfree;//head of thread freelist is now head of free list
 }
 
 enum page_kind_enum get_page_kind(size_t size)
@@ -582,6 +589,10 @@ void segment_free(struct segment *segment)
 	pthread_mutex_lock(&segment_bitmap_lock);
 	assert(segment_in_use(index) == true); // should not be freeing a segment that is free
 	set_segment_in_use(index, false);
+	size_t id = get_cpuid();
+	thread_heap *heap = &tlb[id];
+	assert(id == heap->cpu_id && heap->init);
+	if (heap->small_segment_refs == segment) heap->small_segment_refs = segment->next;
 	remove_segment_node(segment);
 	num_segments_free++;
 	pthread_mutex_unlock(&segment_bitmap_lock);
@@ -798,8 +809,8 @@ void mm_free(void *ptr)
 	}
 	else
 	{ // non-local free TODO: finish this, make fields that need to be atomic actually atomic
-	  // atomic_push( &page->thread_free, block);
-	  // atomic_incr( &page->num_thread_freed );
+		atomic_push( &page->thread_free, block);
+		atomic_fetch_add( &page->num_thread_freed, 1 );
 	}
 }
 

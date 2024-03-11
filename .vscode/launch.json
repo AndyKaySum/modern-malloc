@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/benchmarks/simple/simple-a2alloc-dbg",
             // 	simpletest for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
-            "args": ["1", "129", "32768", "0", "1"],
+            "args": ["1", "2", "32768", "0", "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
@@ -37,6 +37,58 @@
             "program": "${workspaceFolder}/benchmarks/threadtest/threadtest-a2alloc-dbg",
             // 	threadtest for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
             "args": ["1", "50", "30000", "0", "1"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prerun"
+        },
+        {
+            "name": "Threadtest 2 Thread Debug",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/benchmarks/threadtest/threadtest-a2alloc-dbg",
+            // 	threadtest for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
+            "args": ["2", "50", "30000", "0", "1"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prerun"
+        },
+        {
+            "name": "Threadtest 8 Thread Debug",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/benchmarks/threadtest/threadtest-a2alloc-dbg",
+            // 	threadtest for %d threads, %d iterations, %d objects, %d work (loop iters) and %d size.
+            "args": ["8", "50", "30000", "0", "1"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
