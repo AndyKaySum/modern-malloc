@@ -144,10 +144,10 @@ struct thread_heap
 	struct segment *small_segment_refs; // linked list of freed segments that can be written to
 	// check before allocating new segment with mem_sbrk
 	// TODO fix padding
-	uint8_t padding[CACHESIZE - 40]; // ensure that false sharing does not occur for this, TODO
+	uint8_t padding[88]; //makes the thread heap 10 * CACHESIZE
 } typedef thread_heap;
 
-#define NUM_CPUS 267
+#define NUM_CPUS 32
 // pointers to thread-local heaps
 thread_heap *tlb;
 
