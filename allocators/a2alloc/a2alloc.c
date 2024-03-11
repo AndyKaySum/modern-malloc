@@ -494,6 +494,7 @@ segment *malloc_segment(thread_heap *heap, size_t size)
 
 	if (new_seg == NULL)
 	{
+		assert(num_segments_allocated < num_segments_capacity);
 		new_seg = mem_sbrk(SEGMENT_SIZE);
 		assert(new_seg != NULL);
 		set_segment_in_use(num_segments_allocated, true);
@@ -988,10 +989,10 @@ int mm_init(void)
 
 		first_segment_address = NEXT_ADDRESS;
 		pthread_mutex_lock(&segment_bitmap_lock);
-		num_segments_capacity = (MEM_LIMIT - (uint64_t)first_segment_address) / SEGMENT_SIZE;
-		pthread_mutex_unlock(&segment_bitmap_lock);
+		num_segments_capacity = (MEM_LIMIT - ((uint64_t)first_segment_address - (uint64_t)starting_point)) / SEGMENT_SIZE;
 
 		memset(segment_bitmap, 0, sizeof(uint8_t) * MAX_NUM_SEGMENTS);
+		pthread_mutex_unlock(&segment_bitmap_lock);
 
 		return init;
 	}
