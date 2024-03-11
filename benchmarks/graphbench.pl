@@ -47,9 +47,9 @@ unless (%config = do "$dir/graph_config.pl") {
 
 # Initialize list of allocator results to graph.
 # uncomment the line corresponding to the allocators you want to graph.
-#my @alloclist = ("a2alloc");
+my @alloclist = ("a2alloc");
 #my @alloclist = ("libc", "kheap");
-my @alloclist = ("libc");
+# my @alloclist = ("libc");
 #my @alloclist = ("libc", "kheap", "a2alloc");
 my %names;
 

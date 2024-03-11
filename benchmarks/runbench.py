@@ -44,8 +44,8 @@ def main():
         # uncomment the line corresponding to the allocators you want to run.
         #alloclist = ["libc", "kheap", "a2alloc"]
         #alloclist = ["libc", "kheap"]
-        alloclist = ["libc"]
-        #alloclist = ["a2alloc"]
+        # alloclist = ["libc"]
+        alloclist = ["a2alloc"]
 
         #Initialize from config file
         #Each benchmark dir must contain a 'config' file that sets 
