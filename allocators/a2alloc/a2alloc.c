@@ -40,31 +40,41 @@ typedef ptrdiff_t vaddr_t;
 
 typedef uint8_t *address;
 
-#define NUM_PAGES 18 // 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, >524288
-// static const size_t pages_sizes[NUM_PAGES] = {8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
-
-#define NUM_DIRECT_PAGES 128 //8, 16, 24, 32, 40, .. 1024
-// #define NUM_TOTAL_SIZES 137 //8, 16, 24, 32, 40, .. 1024, 2^11, 2^12, ..., 2^19
-// static const size_t all_sizes[NUM_TOTAL_SIZES] = {8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 328, 336, 344, 352, 360, 368, 376, 384, 392, 400, 408, 416, 424, 432, 440, 448, 456, 464, 472, 480, 488, 496, 504, 512, 520, 528, 536, 544, 552, 560, 568, 576, 584, 592, 600, 608, 616, 624, 632, 640, 648, 656, 664, 672, 680, 688, 696, 704, 712, 720, 728, 736, 744, 752, 760, 768, 776, 784, 792, 800, 808, 816, 824, 832, 840, 848, 856, 864, 872, 880, 888, 896, 904, 912, 920, 928, 936, 944, 952, 960, 968, 976, 984, 992, 1000, 1008, 1016, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288};
 
 #define CACHESIZE 128 /* Should cover most machines. */ // NOTE: copied from Ex2
 #define MB 1048576										// 2^20 bytes
 #define KB 1024											// 2^10 bytes
 
+//HOWTO: change segment size by 2^x
+//1: multiply segment size 2^x
+//2: multiply malloc thresholds by 2^x
+//3: add x to each page shift
+
 #define MALLOC_SMALL_THRESHOLD 1024
 #define MALLOC_LARGE_THRESHOLD (512 * KB)
 
+#define NUM_PAGES 18 // 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, >524288
+#define NUM_DIRECT_PAGES (MALLOC_SMALL_THRESHOLD / 8) //8, 16, 24, 32, 40, .. MALLOC_SMALL_THRESHOLD
+#define LOCAL_HEAP_METADATA_SIZE (8*(NUM_DIRECT_PAGES + NUM_PAGES + 3)) //size of thread_heap's struct without padding
+#define LOCAL_HEAP_PADDING (CACHESIZE * 10 - LOCAL_HEAP_METADATA_SIZE)
+
+#define SEGMENT_ALIGN_PAGE_SHIFT 22
+#define SMALL_PAGE_SHIFT 16
+#define NONSMALL_PAGE_SHIFT SEGMENT_ALIGN_PAGE_SHIFT
+
 #define SEGMENT_SIZE (4 * MB)
 #define NUM_PAGES_SMALL_SEGMENT 64
+#define NUM_PAGES_NONSMALL_SEGMENT 1
 
-#define SMALL_PAGE_SIZE (64 * KB)
+#define SMALL_PAGE_SIZE (SEGMENT_SIZE / NUM_PAGES_SMALL_SEGMENT)
 #define LARGE_PAGE_SIZE SEGMENT_SIZE
 
 #define NEXT_ADDRESS (address)(dseg_hi + 1) // this is the address we would get if we could call mem_sbrk(0);
 
 #define MEM_LIMIT (256 * MB)
 #define MAX_NUM_SEGMENTS (MEM_LIMIT / SEGMENT_SIZE) // max number of segments possible (assuming we start at an aligned address)
-uint8_t segment_bitmap[MAX_NUM_SEGMENTS];			// TODO: this size is overkill
+#define SEGMENT_BITMAP_SIZE MAX_NUM_SEGMENTS
+uint8_t segment_bitmap[SEGMENT_BITMAP_SIZE];			// TODO: this size is overkill
 // pthread_mutex_t lock;
 pthread_mutex_t segment_bitmap_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -107,7 +117,7 @@ enum page_kind_enum
 };
 
 /// Use segment alignment to get the pointer to ptr's "parent" segment
-#define get_segment(ptr) (struct segment *)((uintptr_t)(ptr) >> 22 << 22)
+#define get_segment(ptr) (struct segment *)((uintptr_t)(ptr) >> SEGMENT_ALIGN_PAGE_SHIFT << SEGMENT_ALIGN_PAGE_SHIFT)
 
 struct segment
 {
@@ -140,7 +150,7 @@ struct thread_heap
 	struct segment *small_segment_refs; // linked list of freed segments that can be written to
 	// check before allocating new segment with mem_sbrk
 	// TODO fix padding
-	uint8_t padding[88]; //makes the thread heap 10 * CACHESIZE
+	uint8_t padding[LOCAL_HEAP_PADDING]; //makes the thread heap 10 * CACHESIZE
 } typedef thread_heap;
 
 #define NUM_CPUS 32
@@ -536,11 +546,11 @@ void set_segment_metadata(thread_heap *heap, size_t size, size_t num_contiguous_
 	// segment page_shift: for small pages this is 16 (= 64KiB), while for large and
 	// huge pages it is 22 (= 4MiB) such that the index is always zero in those cases
 	// (as there is just one page)
-	new_seg->page_shift = page_kind == SMALL ? 16 : 22;
+	new_seg->page_shift = page_kind == SMALL ? SMALL_PAGE_SHIFT : NONSMALL_PAGE_SHIFT;
 	new_seg->page_kind = page_kind;
-	new_seg->total_num_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : 1;
+	new_seg->total_num_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : NUM_PAGES_NONSMALL_SEGMENT;
 	new_seg->num_used_pages = 0;
-	new_seg->num_free_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : 1; // 64 pages in small, 1 in others
+	new_seg->num_free_pages = page_kind == SMALL ? NUM_PAGES_SMALL_SEGMENT : NUM_PAGES_NONSMALL_SEGMENT; // 64 pages in small, 1 in others
 	new_seg->next = NULL;
 	new_seg->prev = NULL;
 	new_seg->num_contiguous_segments = num_contiguous_segments_required;
