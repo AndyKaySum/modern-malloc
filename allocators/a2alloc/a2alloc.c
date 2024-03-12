@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <stdatomic.h>
 #include <math.h>
+#include <sys/sysinfo.h>//Needed for: get_nprocs()
 
 // NOTE: copied from kheap
 #define PAGE_SIZE 4096
@@ -49,20 +50,27 @@ typedef uint8_t *address;
 //1: multiply segment size 2^x
 //2: multiply malloc thresholds by 2^x
 //3: add x to each page shift
+//NOTE: NOW USE DOWNSHIFT INSTEAD
 
-#define MALLOC_SMALL_THRESHOLD 1024
-#define MALLOC_LARGE_THRESHOLD (512 * KB)
+//DOWNSCALE X where X is the amount to scale down segment size (along with page size and anything else that must be scaled
+//down to account for smaller segments)
+//HOW TO USE: X is the right bit-shift amount for scaling down segments
+//ie, setting this to 1 will make segments half as small as the default, 2 will make them 4 times as small
+#define DOWNSCALE 0
+
+#define MALLOC_SMALL_THRESHOLD (1024 >> DOWNSCALE)
+#define MALLOC_LARGE_THRESHOLD ((512 * KB) >> DOWNSCALE)
 
 #define NUM_PAGES 18 // 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, >524288
 #define NUM_DIRECT_PAGES (MALLOC_SMALL_THRESHOLD / 8) //8, 16, 24, 32, 40, .. MALLOC_SMALL_THRESHOLD
 #define LOCAL_HEAP_METADATA_SIZE (8*(NUM_DIRECT_PAGES + NUM_PAGES + 3)) //size of thread_heap's struct without padding
 #define LOCAL_HEAP_PADDING (CACHESIZE * 10 - LOCAL_HEAP_METADATA_SIZE)
 
-#define SEGMENT_ALIGN_PAGE_SHIFT 22
-#define SMALL_PAGE_SHIFT 16
+#define SEGMENT_ALIGN_PAGE_SHIFT (22 - DOWNSCALE)
+#define SMALL_PAGE_SHIFT (16 - DOWNSCALE)
 #define NONSMALL_PAGE_SHIFT SEGMENT_ALIGN_PAGE_SHIFT
 
-#define SEGMENT_SIZE (4 * MB)
+#define SEGMENT_SIZE ((4 * MB) >> DOWNSCALE)
 #define NUM_PAGES_SMALL_SEGMENT 64
 #define NUM_PAGES_NONSMALL_SEGMENT 1
 
@@ -153,7 +161,7 @@ struct thread_heap
 	uint8_t padding[LOCAL_HEAP_PADDING]; //makes the thread heap 10 * CACHESIZE
 } typedef thread_heap;
 
-#define NUM_CPUS 32
+#define NUM_CPUS get_nprocs()
 // pointers to thread-local heaps
 thread_heap *tlb;
 
@@ -1012,6 +1020,7 @@ int mm_init(void)
 		}
 
 		tlb = mem_sbrk(alignment_space);
+		assert(sizeof(thread_heap) % CACHESIZE == 0);//verify that padding is correct, to avoid false sharing
 
 		assert((uint64_t)(NEXT_ADDRESS) % SEGMENT_SIZE == 0);
 
